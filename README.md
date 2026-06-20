@@ -24,8 +24,15 @@ The application is styled with a rigid, nostalgic **Windows XP (Luna Theme)** ae
 ### Terminal Installation (via curl)
 You can download, extract, and install the latest release directly into your `/Applications` folder using the following command in your terminal:
 ```bash
-curl -L -s https://github.com/notMNKY/audofilez/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
+curl -L -s https://github.com/notMNKY/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
 ```
+
+> [!WARNING]
+> **macOS Gatekeeper Warning**: Because this application is compiled locally and is not signed/notarized with a paid Apple Developer Account, macOS will block it from running with a warning.
+> To bypass this, run the following command in your Terminal to strip the quarantine flag:
+> ```bash
+> xattr -cr /Applications/auDO\ File\ Z.app
+> ```
 
 ### Full Disk Access (FDA) Onboarding
 To read protected user directories and calculate file hashes, macOS requires Full Disk Access:
