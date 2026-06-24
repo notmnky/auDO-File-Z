@@ -152,15 +152,32 @@ fn hash_file(path: &Path) -> io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+#[derive(Default)]
+pub struct ScanState {
+    pub is_cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
 #[tauri::command]
-async fn start_scan(path: String, extensions: String) -> Vec<DuplicateGroup> {
+fn cancel_scan(state: tauri::State<'_, ScanState>) {
+    state.is_cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+    println!("DEBUG: Scan cancellation requested.");
+}
+
+fn run_scan_internal<F>(
+    path: &str,
+    extensions: &str,
+    is_cancelled: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    progress_fn: Option<F>,
+) -> Result<Vec<DuplicateGroup>, String>
+where
+    F: Fn(usize) + Send + Sync,
+{
     let target_path = Path::new(&path);
     if !target_path.exists() || !target_path.is_dir() {
-        println!("DEBUG: Target path '{}' does not exist or is not a directory.", path);
-        return Vec::new();
+        return Err("Target path does not exist or is not a directory.".to_string());
     }
 
-    let parsed_exts = parse_extensions(&extensions);
+    let parsed_exts = parse_extensions(extensions);
     println!("DEBUG: Starting scan on directory: '{}'", path);
     println!("DEBUG: Raw extensions input: '{}'", extensions);
     println!("DEBUG: Parsed extensions filter: {:?}", parsed_exts);
@@ -169,6 +186,10 @@ async fn start_scan(path: String, extensions: String) -> Vec<DuplicateGroup> {
     crawl_directory(target_path, &parsed_exts, &mut all_files);
 
     println!("DEBUG: Crawler found {} total files matching filter.", all_files.len());
+
+    if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(Vec::new());
+    }
 
     // Step 1: Pre-filter by size (group files by size)
     let mut size_groups: HashMap<u64, Vec<(PathBuf, u64, u64)>> = HashMap::new();
@@ -190,23 +211,53 @@ async fn start_scan(path: String, extensions: String) -> Vec<DuplicateGroup> {
         all_files.len() - candidate_files_count
     );
 
-    // Step 2: Compute SHA-256 hashes in parallel using Rayon threads
-    let hashed_files: Vec<(String, u64, PathBuf, u64, u64)> = candidate_groups
-        .into_par_iter()
-        .flat_map(|(size, paths)| {
-            paths
-                .into_par_iter()
-                .filter_map(move |(p, modified, created)| {
-                    match hash_file(&p) {
-                        Ok(hash) => Some((hash, size, p, modified, created)),
-                        Err(e) => {
-                            println!("DEBUG: Failed to hash file '{}': {}", p.display(), e);
-                            None
+    if candidate_files_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    // Step 2: Compute SHA-256 hashes
+    let processed_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut hashed_files = Vec::new();
+
+    for (size, paths) in candidate_groups {
+        if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(Vec::new());
+        }
+
+        let group_hashes: Vec<(String, u64, PathBuf, u64, u64)> = paths
+            .into_par_iter()
+            .filter_map(|(p, modified, created)| {
+                if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                    return None;
+                }
+                match hash_file(&p) {
+                    Ok(hash) => {
+                        let current = processed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let pct = (current * 100) / candidate_files_count;
+                        if let Some(ref pf) = progress_fn {
+                            pf(pct);
                         }
+                        Some((hash, size, p, modified, created))
                     }
-                })
-        })
-        .collect();
+                    Err(e) => {
+                        println!("DEBUG: Failed to hash file '{}': {}", p.display(), e);
+                        let current = processed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let pct = (current * 100) / candidate_files_count;
+                        if let Some(ref pf) = progress_fn {
+                            pf(pct);
+                        }
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        hashed_files.extend(group_hashes);
+    }
+
+    if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(Vec::new());
+    }
 
     // Step 3: Group hashed files by their cryptographic hash
     let mut hash_groups: HashMap<String, (u64, Vec<DuplicateFile>)> = HashMap::new();
@@ -244,7 +295,21 @@ async fn start_scan(path: String, extensions: String) -> Vec<DuplicateGroup> {
     // Sort duplicates by file size descending (largest wastes first)
     result.sort_by(|a, b| b.size.cmp(&a.size));
     println!("DEBUG: Found {} duplicate clusters after cryptographic hashing.", result.len());
-    result
+    Ok(result)
+}
+
+#[tauri::command]
+async fn start_scan(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ScanState>,
+    path: String,
+    extensions: String,
+) -> Result<Vec<DuplicateGroup>, String> {
+    state.is_cancelled.store(false, std::sync::atomic::Ordering::Relaxed);
+    let progress_fn = move |pct| {
+        let _ = app.emit("scan-progress", pct);
+    };
+    run_scan_internal(&path, &extensions, &state.is_cancelled, Some(progress_fn))
 }
 
 #[tauri::command]
@@ -312,9 +377,72 @@ async fn resolve_duplicates(items: Vec<ResolutionItem>, mode: String) -> Result<
     Ok(format!("Successfully resolved {} duplicates.", resolved_count))
 }
 
+#[tauri::command]
+fn show_in_finder(path: String) -> Result<(), String> {
+    let path_buf = std::path::PathBuf::from(path);
+    if !path_buf.exists() {
+        return Err("File or folder does not exist".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path_buf)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(path_buf)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("Platform not supported".to_string())
+    }
+}
+
+#[tauri::command]
+fn get_info(path: String) -> Result<(), String> {
+    let path_buf = std::path::PathBuf::from(path);
+    if !path_buf.exists() {
+        return Err("File or folder does not exist".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let path_str = path_buf.to_string_lossy();
+        let script = format!(
+            "tell application \"Finder\"\nopen information window of (POSIX file \"{}\" as alias)\nactivate\nend tell",
+            path_str
+        );
+        std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Err("Get Info is not supported on Windows yet".to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("Platform not supported".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(ScanState::default())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle();
@@ -357,7 +485,10 @@ pub fn run() {
             check_fda,
             open_folder_picker,
             start_scan,
-            resolve_duplicates
+            resolve_duplicates,
+            show_in_finder,
+            get_info,
+            cancel_scan
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -423,7 +554,13 @@ mod tests {
         assert_eq!(crawled.len(), 3);
 
         // Test duplicate detection scan command
-        let duplicates = tauri::async_runtime::block_on(start_scan(test_dir.to_string_lossy().into_owned(), "txt".to_string()));
+        let cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let duplicates = run_scan_internal(
+            &test_dir.to_string_lossy(),
+            "txt",
+            &cancel_flag,
+            None::<fn(usize)>,
+        ).unwrap();
         assert_eq!(duplicates.len(), 1); 
         assert_eq!(duplicates[0].files.len(), 2);
         assert!(duplicates[0].files.iter().any(|f| f.path == file_1.to_string_lossy().into_owned()));

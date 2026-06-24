@@ -58,6 +58,7 @@ function App() {
   const [checkingFda, setCheckingFda] = useState<boolean>(false);
   const [selectedDirectory, setSelectedDirectory] = useState<string>("");
   const [extensions, setExtensions] = useState<string>(".mp3, .wav, .flac, .aif");
+  const [scanProgress, setScanProgress] = useState<number>(0);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanResults, setScanResults] = useState<DuplicateGroup[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<Record<string, boolean>>({});
@@ -73,6 +74,21 @@ function App() {
 
   // References for closing menus on clicking outside
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Listen for scan progress events
+  useEffect(() => {
+    let unlistenProgress: (() => void) | null = null;
+    
+    listen<number>("scan-progress", (event) => {
+      setScanProgress(event.payload);
+    }).then((unsub) => {
+      unlistenProgress = unsub;
+    }).catch(console.error);
+
+    return () => {
+      if (unlistenProgress) unlistenProgress();
+    };
+  }, []);
 
   // Check FDA on mount
   useEffect(() => {
@@ -209,13 +225,24 @@ function App() {
     setStatusMessage("Deselected all files.");
   };
 
-  // Start scanning
+  // Start or Stop scanning
   const handleScan = async () => {
+    if (isScanning) {
+      setStatusMessage("Cancelling scan...");
+      try {
+        await invoke("cancel_scan");
+      } catch (err) {
+        console.error("Failed to cancel scan:", err);
+      }
+      return;
+    }
+
     if (!selectedDirectory) {
       setStatusMessage("Error: Please select a target directory first.");
       return;
     }
     setIsScanning(true);
+    setScanProgress(0);
     setStatusMessage("Scanning directory structure cryptographically...");
     setScanResults([]);
     setSelectedFiles({});
@@ -226,6 +253,12 @@ function App() {
         path: selectedDirectory,
         extensions: extensions
       });
+      
+      if (results.length === 0) {
+        setStatusMessage("Scan cancelled by user.");
+        return;
+      }
+
       setScanResults(results);
       
       // Apply selections based on current mode, default to oldest if manual on first load
@@ -734,13 +767,24 @@ function App() {
                       {extensions.length}/300 characters
                     </div>
                   </div>
-                  <button 
-                    onClick={handleScan}
-                    disabled={isScanning || !selectedDirectory}
-                    className={`px-4 py-1.5 text-xs h-[28px] min-w-[80px] ${buttonBlueClass}`}
-                  >
-                    {isScanning ? "Scanning..." : "Scan"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {isScanning && (
+                      <span className="text-[10px] font-mono font-bold animate-pulse text-gray-500 whitespace-nowrap">
+                        {scanProgress}% Completed
+                      </span>
+                    )}
+                    <button 
+                      onClick={handleScan}
+                      disabled={!isScanning && !selectedDirectory}
+                      className={`px-4 py-1.5 text-xs h-[28px] min-w-[80px] ${
+                        isScanning 
+                          ? (isDoors ? "bg-red-600 text-white hover:bg-red-700 border-none" : "bg-[#CC0000] hover:bg-red-700 text-white border-none") 
+                          : buttonBlueClass
+                      }`}
+                    >
+                      {isScanning ? "Stop" : "Scan"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
