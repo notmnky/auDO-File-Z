@@ -60,6 +60,9 @@ function App() {
   const [extensions, setExtensions] = useState<string>("");
   const [scanProgress, setScanProgress] = useState<number>(0);
   const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [isResolving, setIsResolving] = useState<boolean>(false);
+  const [resolveProgress, setResolveProgress] = useState<number>(0);
+  const [resolveTotal, setResolveTotal] = useState<number>(0);
   const [scanResults, setScanResults] = useState<DuplicateGroup[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<Record<string, boolean>>({});
   const [resolutionMode, setResolutionMode] = useState<"delete" | "symlink">("delete");
@@ -203,6 +206,23 @@ function App() {
     return () => {
       if (unlistenProgress) {
         unlistenProgress();
+      }
+    };
+  }, []);
+
+  // Listen for resolve progress events
+  useEffect(() => {
+    let unlistenResolve: (() => void) | null = null;
+    
+    listen<number>("resolve-progress", (event) => {
+      setResolveProgress(event.payload);
+    }).then((unsub) => {
+      unlistenResolve = unsub;
+    }).catch(console.error);
+
+    return () => {
+      if (unlistenResolve) {
+        unlistenResolve();
       }
     };
   }, []);
@@ -427,6 +447,9 @@ function App() {
     }
 
     setIsScanning(true);
+    setIsResolving(true);
+    setResolveProgress(0);
+    setResolveTotal(resolutionItems.length);
     setStatusMessage(`Resolving duplicates: executing file operations on ${resolutionItems.length} files...`);
 
     try {
@@ -449,6 +472,7 @@ function App() {
       alert(`Resolution failed:\n${err}`);
     } finally {
       setIsScanning(false);
+      setIsResolving(false);
     }
   };
 
@@ -880,11 +904,6 @@ function App() {
                     Audio files only
                   </button>
                   <div className="flex items-center gap-2">
-                    {isScanning && (
-                      <span className="text-[10px] font-mono font-bold animate-pulse text-gray-500 whitespace-nowrap">
-                        {scanProgress}% Completed
-                      </span>
-                    )}
                     <button 
                       onClick={handleScan}
                       disabled={!isScanning && !selectedDirectory}
@@ -1150,8 +1169,16 @@ function App() {
         <div className={`w-[120px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
           Offline Mode: Yes
         </div>
-        <div className={`w-[220px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
-          Ready to free up: {reclaimedFilesCount} files ({formatBytes(reclaimedBytes)})
+        <div className={`w-[320px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
+          {isScanning && !isResolving ? (
+            `Scanning folder... ${scanProgress}% complete`
+          ) : isResolving && resolutionMode === "delete" ? (
+            `Moving duplicates to Trash: ${resolveProgress} / ${resolveTotal} files processed`
+          ) : isResolving && resolutionMode === "symlink" ? (
+            `Preserving links... Creating symlink ${resolveProgress} of ${resolveTotal}`
+          ) : (
+            `Ready to free up: ${reclaimedFilesCount} files (${formatBytes(reclaimedBytes)})`
+          )}
         </div>
         <div className="w-[150px] px-2 py-0.5 truncate font-semibold text-right">
           FDA Status: {fdaGranted ? "✓ Active" : "✗ Restricted"}
