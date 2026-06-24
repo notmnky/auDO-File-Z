@@ -173,7 +173,6 @@ function App() {
   // Check FDA on mount
   useEffect(() => {
     runFdaCheck();
-    runUpdateCheck();
   }, []);
 
   // Semantic Version Comparison
@@ -210,14 +209,22 @@ function App() {
   };
 
   // Run update check
-  const runUpdateCheck = async () => {
+  const runUpdateCheck = async (isManual: boolean = false) => {
+    if (isManual) {
+      setStatusMessage("Checking for updates from GitHub...");
+    }
     try {
       const metadata = await invoke<any>("get_app_metadata");
       setAppMetadata(metadata);
       
       const response = await fetch("https://api.github.com/repos/notmnky/auDO-File-Z/releases/latest");
       if (!response.ok) {
-        console.warn("Failed to check for updates: GitHub API returned status", response.status);
+        const errMsg = `Failed to check for updates: GitHub API returned status ${response.status}`;
+        console.warn(errMsg);
+        if (isManual) {
+          setStatusMessage(errMsg);
+          alert(errMsg);
+        }
         return;
       }
       
@@ -225,11 +232,13 @@ function App() {
       const latestTag = data.tag_name;
       const releaseBody = data.body || "No release notes provided.";
       
-      // Check if user has skipped this version
-      const skippedVersion = localStorage.getItem("skipped_update_version");
-      if (skippedVersion === latestTag) {
-        console.log("Update available but skipped by user:", latestTag);
-        return;
+      // If manual check, ignore skipped version preferences
+      if (!isManual) {
+        const skippedVersion = localStorage.getItem("skipped_update_version");
+        if (skippedVersion === latestTag) {
+          console.log("Update available but skipped by user:", latestTag);
+          return;
+        }
       }
       
       if (isUpdateAvailable(APP_VERSION, latestTag)) {
@@ -241,12 +250,30 @@ function App() {
           setUpdateAssetUrl(asset.browser_download_url);
           setUpdateAssetName(asset.name);
           setShowUpdatePrompt(true);
+          if (isManual) {
+            setStatusMessage(`Update available: Version ${latestTag}`);
+          }
         } else {
-          console.warn("Update available but no matching asset found for architecture:", metadata.build_platform);
+          const warnMsg = `Update available but no matching asset found for architecture: ${metadata.build_platform}`;
+          console.warn(warnMsg);
+          if (isManual) {
+            setStatusMessage(warnMsg);
+            alert(warnMsg);
+          }
+        }
+      } else {
+        if (isManual) {
+          setStatusMessage("You are running the latest version of auDO File Z.");
+          alert("You are running the latest version of auDO File Z.");
         }
       }
     } catch (err) {
-      console.warn("Error running update check:", err);
+      const errMsg = `Error running update check: ${err}`;
+      console.warn(errMsg);
+      if (isManual) {
+        setStatusMessage(errMsg);
+        alert(errMsg);
+      }
     }
   };
 
@@ -681,6 +708,9 @@ function App() {
       case "view-log":
         loadLogAndShow();
         break;
+      case "check-update":
+        runUpdateCheck(true);
+        break;
     }
   };
 
@@ -919,6 +949,12 @@ function App() {
                 className={`w-full text-left px-3 py-1 text-xs ${dropdownBtnClass}`}
               >
                 View App Log
+              </button>
+              <button 
+                onClick={() => handleMenuAction("check-update")} 
+                className={`w-full text-left px-3 py-1 text-xs ${dropdownBtnClass}`}
+              >
+                Check for Updates
               </button>
             </div>
           )}
@@ -1551,34 +1587,21 @@ function App() {
               )}
 
               {/* Action Buttons */}
-              <div className="flex justify-between items-center mt-1">
+              <div className="flex justify-end gap-2 mt-1">
                 <button 
-                  onClick={() => {
-                    localStorage.setItem("skipped_update_version", updateTag);
-                    setShowUpdatePrompt(false);
-                  }}
+                  onClick={() => setShowUpdatePrompt(false)}
                   disabled={isDownloadingUpdate}
-                  className={`px-3 py-1 ${buttonClassicClass} text-red-700`}
-                  title="Skip notification prompts for this version tag"
+                  className={`px-3 py-1 ${buttonClassicClass}`}
                 >
-                  Skip Version
+                  Ignore
                 </button>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setShowUpdatePrompt(false)}
-                    disabled={isDownloadingUpdate}
-                    className={`px-3 py-1 ${buttonClassicClass}`}
-                  >
-                    Remind Later
-                  </button>
-                  <button 
-                    onClick={handlePerformUpdate}
-                    disabled={isDownloadingUpdate}
-                    className={`px-4 py-1 flex items-center gap-1 ${buttonBlueClass}`}
-                  >
-                    {isDownloadingUpdate ? "Downloading..." : "Update Now"}
-                  </button>
-                </div>
+                <button 
+                  onClick={handlePerformUpdate}
+                  disabled={isDownloadingUpdate}
+                  className={`px-4 py-1 flex items-center gap-1 ${buttonBlueClass}`}
+                >
+                  {isDownloadingUpdate ? "Downloading..." : "Download and Install Now"}
+                </button>
               </div>
             </div>
           </div>
