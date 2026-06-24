@@ -130,7 +130,7 @@ function App() {
     }
   };
 
-  // Selection & Skins States
+  // Selection & Skins States (featuring VinylBox-Z dark theme)
   const [selectionMode, setSelectionMode] = useState<"manual" | "oldest" | "newest">("manual");
   const [showAbout, setShowAbout] = useState<boolean>(false);
   const [activeMenu, setActiveMenu] = useState<"file" | "edit" | "view" | "help" | null>(null);
