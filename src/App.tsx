@@ -263,8 +263,8 @@ function App() {
         }
       } else {
         if (isManual) {
-          setStatusMessage("You are running the latest version of auDO File Z.");
-          alert("You are running the latest version of auDO File Z.");
+          setStatusMessage("No New Update Available");
+          alert("No New Update Available");
         }
       }
     } catch (err) {
