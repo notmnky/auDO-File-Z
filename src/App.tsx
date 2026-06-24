@@ -1061,7 +1061,7 @@ function App() {
             {/* Bottom Actions Box */}
             <div className={`relative pt-4 px-3 pb-3 rounded-[3px] flex-shrink-0 flex flex-col md:flex-row justify-between items-center gap-3 ${groupBoxClass}`}>
               <span className={`absolute -top-2.5 left-2 px-1 text-[11px] font-bold ${groupBoxLegendClass}`}>
-                Deduplication Resolution Engine
+                What would you like to do next?
               </span>
 
               {/* Option Switch Toggles */}
@@ -1110,10 +1110,10 @@ function App() {
                 <button 
                   onClick={handleResolve}
                   disabled={scanResults.length === 0}
-                  className={`px-6 py-1.5 text-xs min-w-[130px] flex items-center justify-center gap-1 shadow-sm ${buttonGreenClass}`}
+                  className={`px-6 py-1.5 text-xs min-w-[80px] flex items-center justify-center gap-1 shadow-sm ${buttonGreenClass}`}
                 >
                   <Check size={14} />
-                  Resolve Selected
+                  Go!
                 </button>
               </div>
 
