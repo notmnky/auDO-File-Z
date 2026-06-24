@@ -22,6 +22,7 @@ interface DuplicateFile {
   hash: string;
   modified: number; // Epoch milliseconds from Rust
   created: number;  // Epoch milliseconds from Rust
+  read_only: boolean;
 }
 
 interface DuplicateGroup {
@@ -311,7 +312,11 @@ function App() {
       }
 
       group.files.forEach((file, index) => {
-        newSelections[file.path] = index !== keepIndex;
+        if (file.read_only) {
+          newSelections[file.path] = false;
+        } else {
+          newSelections[file.path] = index !== keepIndex;
+        }
       });
     });
     
@@ -650,6 +655,8 @@ function App() {
   const statusPanelClass = isDoors
     ? "bg-xp-grey border-t border-xp-greyShadow text-black"
     : "bg-[#181818] border-t border-[#222222] text-[#808080]";
+
+  const hasReadOnlyFiles = scanResults.some(group => group.files.some(f => f.read_only));
 
   return (
     <div className={`flex flex-col h-screen select-none overflow-hidden theme-${theme} ${containerClass}`}>
@@ -1087,13 +1094,21 @@ function App() {
                                 className={`grid grid-cols-12 text-xs py-1.5 items-center cursor-pointer group ${dataGridRowClass(isKeep)}`}
                               >
                                 {/* Checkbox Selector */}
-                                <div className="col-span-1 flex justify-center items-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="col-span-1 flex justify-center items-center gap-1" onClick={(e) => e.stopPropagation()}>
                                   <input 
                                     type="checkbox"
                                     checked={isChecked}
                                     onChange={() => toggleFile(file.path)}
                                     className="w-3.5 h-3.5 cursor-pointer accent-xp-blue"
                                   />
+                                  {file.read_only && (
+                                    <span 
+                                      className="cursor-help text-xs"
+                                      title="Read-only file. Check permissions before continuing."
+                                    >
+                                      🛑
+                                    </span>
+                                  )}
                                 </div>
                                 
                                 {/* Filename */}
@@ -1216,7 +1231,7 @@ function App() {
         <div className={`w-[120px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
           Offline Mode: Yes
         </div>
-        <div className={`w-[320px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
+        <div className={`w-[450px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
           {isScanning && !isResolving ? (
             `Scanning folder... ${scanProgress}% complete`
           ) : isResolving && resolutionMode === "delete" ? (
@@ -1224,7 +1239,7 @@ function App() {
           ) : isResolving && resolutionMode === "symlink" ? (
             `Preserving links... Creating symlink ${resolveProgress} of ${resolveTotal}`
           ) : (
-            `Ready to free up: ${reclaimedFilesCount} files (${formatBytes(reclaimedBytes)})`
+            `Ready to free up: ${reclaimedFilesCount} files (${formatBytes(reclaimedBytes)})${hasReadOnlyFiles ? " 🛑 Notice: Read-only files found in clusters" : ""}`
           )}
         </div>
         <div className="w-[150px] px-2 py-0.5 truncate font-semibold text-right">

@@ -6,7 +6,7 @@
 
 ## 1. Overview & Context
 
-**auDO File Z** (Version 9000.2) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
+**auDO File Z** (Version 9000.3) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
 
 The application is styled with a rigid, nostalgic **DoorsXP-Z** (formerly retro Luna Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon.
 
@@ -54,10 +54,17 @@ graph TD
     D --> E[Configure Folder Scan Range]
     C -- No --> E
     E --> F[Execute Scan Thread or Trigger Stop Interrupt]
-    F --> G[Review Grouped Cryptographic SHA-256 Clusters via DoorsXP-Z or VinylBox-Z Skins]
-    G --> H[Adjust Manual Override Checkboxes / Auto-Selection Dropdowns]
-    H --> I[Select Target Action Pattern<br>Move to Trash vs Symlink Preservation]
-    I --> J[Click 'Go!' Button to Complete Resolution Loop]
+    F --> G[Identify Duplicates & Check Read-Only Permissions]
+    G --> H{Is File Read-Only?}
+    H -- Yes --> I[Flag with 🛑 Warning Badge & Exclude from Auto-Selections]
+    H -- No --> J[Process normally]
+    I --> K[Review Grouped Cryptographic SHA-256 Clusters]
+    J --> K
+    K --> L[Optional: Right-click row to 'Show in Finder' or 'Get Info']
+    K --> M[Adjust Manual Override Checkboxes / Auto-Selection Dropdowns]
+    L --> M
+    M --> N[Select Action: Clean Delete vs Link Preservation]
+    N --> O[Click 'Go!' Button to Complete Resolution Loop]
 ```
 
 ---
@@ -80,8 +87,8 @@ graph TD
 ### Dynamic Selection Mode
 Using the dropdown above the table, choose how checkmarks are set:
 *   **Manually Select**: Manually toggle checks.
-*   **Auto-Select Oldest**: Automatically checks older duplicate copies, leaving the newest (most recently modified) copy unchecked (preserved as original).
-*   **Auto-Select Newest**: Automatically checks newer duplicate copies, leaving the oldest copy unchecked (preserved as original).
+*   **Auto-Select Oldest**: Automatically checks older duplicate copies, leaving the newest (most recently modified) copy unchecked (preserved as original). Any read-only files are bypassed and kept unchecked.
+*   **Auto-Select Newest**: Automatically checks newer duplicate copies, leaving the oldest copy unchecked (preserved as original). Any read-only files are bypassed and kept unchecked.
 
 ### Resolution Engine Options
 Before resolving duplicates, toggle the action type at the bottom:
@@ -105,6 +112,7 @@ You can toggle skins instantly by selecting them from the native macOS applicati
 
 *   **Anti-Data Loss validation**: You can change checkpoints freely, but the application enforces that at least one copy in each duplicate group must remain unchecked. If you attempt to check all copies, a flashing warning displays and disables the action button.
 *   **Circular Symlink Block**: The Rust backend validates that the target preserved file is not itself scheduled for deletion in the queue. If a circular reference loop is detected, the command aborts.
+*   **Read-Only File Protections**: Files with read-only permissions are marked with a `🛑` warning badge next to their checkbox. They are automatically skipped during any "Auto-Select" routines, and a warning note: `"🛑 Notice: Read-only files found in clusters"` is displayed in the bottom status panel when such files exist in the scan results.
 
 ---
 

@@ -16,6 +16,7 @@ pub struct DuplicateFile {
     pub hash: String,
     pub modified: u64, // Epoch milliseconds
     pub created: u64,  // Epoch milliseconds
+    pub read_only: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -119,7 +120,7 @@ fn parse_extensions(ext_str: &str) -> Vec<String> {
 fn crawl_directory(
     dir: &Path,
     extensions: &[String],
-    files: &mut Vec<(PathBuf, u64, u64, u64)>,
+    files: &mut Vec<(PathBuf, u64, u64, u64, bool)>,
 ) {
     let read_dir = match std::fs::read_dir(dir) {
         Ok(rd) => rd,
@@ -154,7 +155,7 @@ fn crawl_directory(
         if file_type.is_dir() {
             crawl_directory(&path, extensions, files);
         } else if file_type.is_file() {
-            let (size, modified, created) = match entry.metadata() {
+            let (size, modified, created, read_only) = match entry.metadata() {
                 Ok(meta) => {
                     let sz = meta.len();
                     let mod_time = meta.modified()
@@ -168,19 +169,20 @@ fn crawl_directory(
                         .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
                         .map(|d| d.as_millis() as u64)
                         .unwrap_or(0);
-                    (sz, mod_time, cre_time)
+                    let ro = meta.permissions().readonly();
+                    (sz, mod_time, cre_time, ro)
                 }
                 Err(_) => continue,
             };
 
             // Filter by extension if constraints are provided
             if extensions.is_empty() {
-                files.push((path, size, modified, created));
+                files.push((path, size, modified, created, read_only));
             } else {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     let ext_lower = ext.to_lowercase();
                     if extensions.iter().any(|e| e == &ext_lower) {
-                        files.push((path, size, modified, created));
+                        files.push((path, size, modified, created, read_only));
                     }
                 }
             }
@@ -248,13 +250,13 @@ where
     }
 
     // Step 1: Pre-filter by size (group files by size)
-    let mut size_groups: HashMap<u64, Vec<(PathBuf, u64, u64)>> = HashMap::new();
-    for (file_path, size, modified, created) in &all_files {
-        size_groups.entry(*size).or_default().push((file_path.clone(), *modified, *created));
+    let mut size_groups: HashMap<u64, Vec<(PathBuf, u64, u64, bool)>> = HashMap::new();
+    for (file_path, size, modified, created, read_only) in &all_files {
+        size_groups.entry(*size).or_default().push((file_path.clone(), *modified, *created, *read_only));
     }
 
     let total_unique_sizes = size_groups.len();
-    let candidate_groups: Vec<(u64, Vec<(PathBuf, u64, u64)>)> = size_groups
+    let candidate_groups: Vec<(u64, Vec<(PathBuf, u64, u64, bool)>)> = size_groups
         .into_iter()
         .filter(|(_, paths)| paths.len() >= 2)
         .collect();
@@ -288,9 +290,9 @@ where
             return Ok(Vec::new());
         }
 
-        let group_hashes: Vec<(String, u64, PathBuf, u64, u64)> = paths
+        let group_hashes: Vec<(String, u64, PathBuf, u64, u64, bool)> = paths
             .into_par_iter()
-            .filter_map(|(p, modified, created)| {
+            .filter_map(|(p, modified, created, read_only)| {
                 if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                     return None;
                 }
@@ -301,7 +303,7 @@ where
                         if let Some(ref pf) = progress_fn {
                             pf(pct);
                         }
-                        Some((hash, size, p, modified, created))
+                        Some((hash, size, p, modified, created, read_only))
                     }
                     Err(e) => {
                         write_to_log_file(&format!("Warning: Failed to hash file '{}': {}", p.display(), e));
@@ -327,7 +329,7 @@ where
 
     // Step 3: Group hashed files by their cryptographic hash
     let mut hash_groups: HashMap<String, (u64, Vec<DuplicateFile>)> = HashMap::new();
-    for (hash, size, p, modified, created) in hashed_files {
+    for (hash, size, p, modified, created, read_only) in hashed_files {
         let filename = p
             .file_name()
             .and_then(|n| n.to_str())
@@ -343,6 +345,7 @@ where
             hash,
             modified,
             created,
+            read_only,
         });
     }
 
