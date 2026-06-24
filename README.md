@@ -6,7 +6,7 @@
 
 ## 1. Overview & Context
 
-**auDO File Z** (Version 9000.1) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
+**auDO File Z** (Version 9000.2) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
 
 The application is styled with a rigid, nostalgic **DoorsXP-Z** (formerly retro Luna Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon.
 

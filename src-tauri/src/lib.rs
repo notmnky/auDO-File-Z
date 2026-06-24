@@ -31,19 +31,70 @@ pub struct ResolutionItem {
     pub original: String,
 }
 
+fn write_to_log_file(message: &str) {
+    if let Ok(home) = std::env::var("HOME") {
+        let log_dir = Path::new(&home).join(".config").join("auDO-File-Z");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_path = log_dir.join("app.log");
+        
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+            
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::io::Write;
+            let _ = writeln!(file, "[Epoch {}] {}", now, message);
+        }
+    }
+}
+
+#[tauri::command]
+fn read_log_file() -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let log_path = Path::new(&home).join(".config").join("auDO-File-Z").join("app.log");
+    if !log_path.exists() {
+        return Ok("No log records found yet.".to_string());
+    }
+    std::fs::read_to_string(&log_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_log_file() -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let log_path = Path::new(&home).join(".config").join("auDO-File-Z").join("app.log");
+    if log_path.exists() {
+        std::fs::remove_file(&log_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn check_fda() -> bool {
+    write_to_log_file("FDA Check executed.");
     let home = std::env::var("HOME").unwrap_or_default();
     if home.is_empty() {
+        write_to_log_file("FDA Check failed: HOME env var not set.");
         return false;
     }
     let path = Path::new(&home).join("Library/Safari/Bookmarks.db");
     match File::open(path) {
-        Ok(_) => true,
+        Ok(_) => {
+            write_to_log_file("FDA status verified: Active.");
+            true
+        }
         Err(e) => {
-            // PermissionDenied means FDA is restricted.
-            // NotFound or other means we have read permission, but the file doesn't exist.
-            e.kind() != io::ErrorKind::PermissionDenied
+            let has_fda = e.kind() != io::ErrorKind::PermissionDenied;
+            write_to_log_file(&format!(
+                "FDA status verified: {}. (File open error: {:?})",
+                if has_fda { "Active" } else { "Restricted" },
+                e
+            ));
+            has_fda
         }
     }
 }
@@ -160,6 +211,7 @@ pub struct ScanState {
 #[tauri::command]
 fn cancel_scan(state: tauri::State<'_, ScanState>) {
     state.is_cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+    write_to_log_file("Scan cancellation requested by user.");
     println!("DEBUG: Scan cancellation requested.");
 }
 
@@ -174,10 +226,12 @@ where
 {
     let target_path = Path::new(&path);
     if !target_path.exists() || !target_path.is_dir() {
+        write_to_log_file(&format!("Scan failed: target path '{}' does not exist or is not a directory.", path));
         return Err("Target path does not exist or is not a directory.".to_string());
     }
 
     let parsed_exts = parse_extensions(extensions);
+    write_to_log_file(&format!("Starting scan on directory '{}' with extensions '{}'", path, extensions));
     println!("DEBUG: Starting scan on directory: '{}'", path);
     println!("DEBUG: Raw extensions input: '{}'", extensions);
     println!("DEBUG: Parsed extensions filter: {:?}", parsed_exts);
@@ -185,9 +239,11 @@ where
     let mut all_files = Vec::new();
     crawl_directory(target_path, &parsed_exts, &mut all_files);
 
+    write_to_log_file(&format!("Crawler found {} total files matching filter.", all_files.len()));
     println!("DEBUG: Crawler found {} total files matching filter.", all_files.len());
 
     if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+        write_to_log_file("Scan cancelled by user before pre-filtering.");
         return Ok(Vec::new());
     }
 
@@ -204,6 +260,12 @@ where
         .collect();
 
     let candidate_files_count: usize = candidate_groups.iter().map(|(_, paths)| paths.len()).sum();
+    write_to_log_file(&format!(
+        "Grouped into {} unique file sizes. Found {} candidate files sharing sizes (pre-filtered {} unique files).",
+        total_unique_sizes,
+        candidate_files_count,
+        all_files.len() - candidate_files_count
+    ));
     println!(
         "DEBUG: Grouped into {} unique file sizes. Found {} candidate files sharing sizes (pre-filtered {} unique files).",
         total_unique_sizes,
@@ -212,6 +274,7 @@ where
     );
 
     if candidate_files_count == 0 {
+        write_to_log_file("Scan complete: No candidate files sharing sizes found.");
         return Ok(Vec::new());
     }
 
@@ -221,6 +284,7 @@ where
 
     for (size, paths) in candidate_groups {
         if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            write_to_log_file("Scan cancelled by user during hashing.");
             return Ok(Vec::new());
         }
 
@@ -240,6 +304,7 @@ where
                         Some((hash, size, p, modified, created))
                     }
                     Err(e) => {
+                        write_to_log_file(&format!("Warning: Failed to hash file '{}': {}", p.display(), e));
                         println!("DEBUG: Failed to hash file '{}': {}", p.display(), e);
                         let current = processed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                         let pct = (current * 100) / candidate_files_count;
@@ -256,6 +321,7 @@ where
     }
 
     if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+        write_to_log_file("Scan cancelled by user after hashing completed.");
         return Ok(Vec::new());
     }
 
@@ -294,6 +360,7 @@ where
 
     // Sort duplicates by file size descending (largest wastes first)
     result.sort_by(|a, b| b.size.cmp(&a.size));
+    write_to_log_file(&format!("Found {} duplicate clusters after cryptographic hashing.", result.len()));
     println!("DEBUG: Found {} duplicate clusters after cryptographic hashing.", result.len());
     Ok(result)
 }
@@ -369,11 +436,14 @@ where
         return Ok("No files to resolve.".to_string());
     }
 
+    write_to_log_file(&format!("Starting resolution of {} files (mode: '{}').", items.len(), mode));
+
     // Circular symlink check: verify the target's original counterpart is not scheduled for deletion.
     let targets: std::collections::HashSet<&str> = items.iter().map(|i| i.target.as_str()).collect();
     if mode == "symlink" {
         for item in &items {
             if targets.contains(item.original.as_str()) {
+                write_to_log_file(&format!("Safety Hazard aborted: circular reference detected. Target and original match: {}", item.original));
                 return Err(format!(
                     "Safety Hazard: Preserved file '{}' is also marked for deletion. Aborting linking operation.",
                     item.original
@@ -387,14 +457,18 @@ where
         let target_path = Path::new(&item.target);
         if !target_path.exists() {
             resolved_count += 1;
+            write_to_log_file(&format!("Skipping file '{}' as it already does not exist.", item.target));
             if let Some(ref pf) = progress_fn {
                 pf(resolved_count);
             }
             continue; // Skip if already resolved
         }
 
+        write_to_log_file(&format!("Resolving file: '{}' pointing to original: '{}'", item.target, item.original));
+
         // 1. Move the target file to the macOS Trash silently
         if let Err(e) = move_to_trash_silent(target_path) {
+            write_to_log_file(&format!("Error: Failed to move '{}' to Trash: {:?}", item.target, e));
             return Err(format!(
                 "Trash Error: Failed to move '{}' to Trash: {}",
                 item.target, e
@@ -408,6 +482,7 @@ where
             #[cfg(unix)]
             {
                 if let Err(e) = std::os::unix::fs::symlink(original_path, target_path) {
+                    write_to_log_file(&format!("Error: Failed to symlink '{}' to '{}': {:?}", item.target, item.original, e));
                     return Err(format!(
                         "Symlink Error: Failed to create symlink from '{}' to '{}': {}",
                         item.target, item.original, e
@@ -418,6 +493,7 @@ where
             #[cfg(windows)]
             {
                 if let Err(e) = std::os::windows::fs::symlink_file(original_path, target_path) {
+                    write_to_log_file(&format!("Error: Failed to symlink on Windows: {:?}", e));
                     return Err(format!(
                         "Symlink Error: Failed to create symlink: {}",
                         e
@@ -432,6 +508,7 @@ where
         }
     }
 
+    write_to_log_file(&format!("Resolution complete. Successfully resolved {} of {} items.", resolved_count, items.len()));
     Ok(format!("Successfully resolved {} duplicates.", resolved_count))
 }
 
@@ -449,8 +526,10 @@ async fn resolve_duplicates(
 
 #[tauri::command]
 fn show_in_finder(path: String) -> Result<(), String> {
-    let path_buf = std::path::PathBuf::from(path);
+    write_to_log_file(&format!("Requesting Show in Finder for path: '{}'", path));
+    let path_buf = std::path::PathBuf::from(path.clone());
     if !path_buf.exists() {
+        write_to_log_file(&format!("Show in Finder failed: Path '{}' does not exist.", path));
         return Err("File or folder does not exist".to_string());
     }
 
@@ -460,7 +539,10 @@ fn show_in_finder(path: String) -> Result<(), String> {
             .arg("-R")
             .arg(path_buf)
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                write_to_log_file(&format!("Show in Finder Error for path '{}': {}", path, e));
+                e.to_string()
+            })?;
         Ok(())
     }
     #[cfg(target_os = "windows")]
@@ -469,19 +551,25 @@ fn show_in_finder(path: String) -> Result<(), String> {
             .arg("/select,")
             .arg(path_buf)
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                write_to_log_file(&format!("Show in Finder Error for path '{}': {}", path, e));
+                e.to_string()
+            })?;
         Ok(())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
+        write_to_log_file("Show in Finder failed: Platform not supported.");
         Err("Platform not supported".to_string())
     }
 }
 
 #[tauri::command]
 fn get_info(path: String) -> Result<(), String> {
-    let path_buf = std::path::PathBuf::from(path);
+    write_to_log_file(&format!("Requesting Get Info for path: '{}'", path));
+    let path_buf = std::path::PathBuf::from(path.clone());
     if !path_buf.exists() {
+        write_to_log_file(&format!("Get Info failed: Path '{}' does not exist.", path));
         return Err("File or folder does not exist".to_string());
     }
 
@@ -496,15 +584,20 @@ fn get_info(path: String) -> Result<(), String> {
             .arg("-e")
             .arg(&script)
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                write_to_log_file(&format!("Get Info Error for path '{}': {}", path, e));
+                e.to_string()
+            })?;
         Ok(())
     }
     #[cfg(target_os = "windows")]
     {
+        write_to_log_file("Get Info failed: Windows not supported.");
         Err("Get Info is not supported on Windows yet".to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
+        write_to_log_file("Get Info failed: Platform not supported.");
         Err("Platform not supported".to_string())
     }
 }
@@ -558,7 +651,9 @@ pub fn run() {
             resolve_duplicates,
             show_in_finder,
             get_info,
-            cancel_scan
+            cancel_scan,
+            read_log_file,
+            clear_log_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

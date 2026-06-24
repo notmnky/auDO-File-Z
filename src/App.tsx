@@ -72,6 +72,8 @@ function App() {
   // Selection & Skins States
   const [selectionMode, setSelectionMode] = useState<"manual" | "oldest" | "newest">("manual");
   const [showAbout, setShowAbout] = useState<boolean>(false);
+  const [showLog, setShowLog] = useState<boolean>(false);
+  const [logContent, setLogContent] = useState<string>("");
   const [activeMenu, setActiveMenu] = useState<"file" | "edit" | "view" | "help" | null>(null);
   const [theme, setTheme] = useState<"doors" | "vinyl">("doors");
 
@@ -389,6 +391,39 @@ function App() {
     }
   };
 
+  // Load and show diagnostics log
+  const loadLogAndShow = async () => {
+    try {
+      const content = await invoke<string>("read_log_file");
+      setLogContent(content);
+      setShowLog(true);
+      setStatusMessage("Loaded diagnostics log.");
+    } catch (err) {
+      console.error("Failed to read log file:", err);
+      setStatusMessage(`Failed to read log file: ${err}`);
+      alert(`Failed to read log file: ${err}`);
+    }
+  };
+
+  // Clear diagnostics log
+  const handleClearLog = async () => {
+    try {
+      await invoke("clear_log_file");
+      setLogContent("No log records found yet.");
+      setStatusMessage("Cleared diagnostics log.");
+    } catch (err) {
+      console.error("Failed to clear log file:", err);
+      setStatusMessage(`Failed to clear log file: ${err}`);
+    }
+  };
+
+  // Copy log to clipboard
+  const handleCopyLog = () => {
+    navigator.clipboard.writeText(logContent);
+    setStatusMessage("Copied diagnostics log to clipboard.");
+    alert("Diagnostics log copied to clipboard.");
+  };
+
   // Toggle individual files manually
   const toggleFile = (path: string) => {
     setSelectedFiles(prev => ({
@@ -524,6 +559,9 @@ function App() {
         break;
       case "about":
         setShowAbout(true);
+        break;
+      case "view-log":
+        loadLogAndShow();
         break;
     }
   };
@@ -755,6 +793,12 @@ function App() {
                 className={`w-full text-left px-3 py-1 text-xs ${dropdownBtnClass}`}
               >
                 About auDO File Z
+              </button>
+              <button 
+                onClick={() => handleMenuAction("view-log")} 
+                className={`w-full text-left px-3 py-1 text-xs ${dropdownBtnClass}`}
+              >
+                View App Log
               </button>
             </div>
           )}
@@ -1253,7 +1297,7 @@ function App() {
                 <Settings className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
                   <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO File Z</h3>
-                  <p className="text-gray-500">Version 9000.1</p>
+                  <p className="text-gray-500">Version 9000.2</p>
                   <p className="text-gray-500 mt-1">© 2026 Nishank / notMNKY</p>
                 </div>
               </div>
@@ -1272,6 +1316,52 @@ function App() {
                   className={`px-6 py-1 min-w-[75px] ${buttonClassicClass}`}
                 >
                   OK
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Log Box Modal */}
+      {showLog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in">
+          <div className={`w-[550px] shadow-lg text-xs font-tahoma border-2 ${isDoors ? "xp-outset bg-xp-grey border-xp-blueDark" : "bg-[#181818] border-[#333333] text-white"}`}>
+            {/* Title Bar */}
+            <div className={`flex items-center justify-between h-[25px] px-1.5 font-bold ${isDoors ? "bg-gradient-to-r from-xp-blue to-xp-blueLight text-white" : "bg-[#1c1c1c] text-[#FF6600] border-b border-[#2c2c2c]"}`}>
+              <span className={isDoors ? "drop-shadow-[1px_1px_0px_rgba(0,0,0,0.5)]" : ""}>Application Diagnostics Log</span>
+              <button 
+                onClick={() => setShowLog(false)}
+                className={`w-[16px] h-[16px] flex items-center justify-center text-[10px] text-white font-extrabold pb-0.5 rounded-[2px] ${isDoors ? "xp-btn-close" : "bg-[#333] hover:bg-red-600 border-none"}`}
+              >
+                X
+              </button>
+            </div>
+            {/* Body */}
+            <div className="p-4 flex flex-col gap-3">
+              <div className={`p-2.5 font-mono text-[10px] select-text overflow-y-auto max-h-[300px] h-[300px] rounded-[1px] whitespace-pre-wrap ${isDoors ? "xp-inset bg-white text-gray-700" : "bg-[#121212] border border-[#2a2a2a] text-gray-300"}`}>
+                {logContent}
+              </div>
+
+              <div className="flex justify-between items-center mt-1">
+                <div className="flex gap-2">
+                  <button 
+                    onClick={handleCopyLog}
+                    className={`px-3 py-1 ${buttonClassicClass}`}
+                  >
+                    Copy to Clipboard
+                  </button>
+                  <button 
+                    onClick={handleClearLog}
+                    className={`px-3 py-1 ${buttonClassicClass}`}
+                  >
+                    Clear Log
+                  </button>
+                </div>
+                <button 
+                  onClick={() => setShowLog(false)}
+                  className={`px-6 py-1 min-w-[75px] ${buttonClassicClass}`}
+                >
+                  Close
                 </button>
               </div>
             </div>
