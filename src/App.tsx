@@ -57,7 +57,7 @@ function App() {
   const [fdaGranted, setFdaGranted] = useState<boolean>(false);
   const [checkingFda, setCheckingFda] = useState<boolean>(false);
   const [selectedDirectory, setSelectedDirectory] = useState<string>("");
-  const [extensions, setExtensions] = useState<string>(".mp3, .wav, .flac, .aif");
+  const [extensions, setExtensions] = useState<string>("");
   const [scanProgress, setScanProgress] = useState<number>(0);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanResults, setScanResults] = useState<DuplicateGroup[]>([]);
