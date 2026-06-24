@@ -1,30 +1,47 @@
 # auDO File Z
-> **Nostalgic Cryptographic File Deduplication for macOS**  
+> **Nostalgic Cryptographic File Deduplication for macOS and Windows**  
 > *Platform-Aware Approved Self-Update System*
 
 ---
 
 ## 1. Overview & Context
 
-**auDO File Z** (Version 9000.4) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
+**auDO File Z** (Version 9000.5) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
 
-The application is styled with a rigid, nostalgic **DoorsXP-Z** (formerly retro Luna Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon.
+The application is styled with a rigid, nostalgic **DoorsXP-Z** (formerly retro Luna Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon (macOS arm64), Intel Mac (macOS x86_64), and Windows (x64).
 
 ### Key Architectural Pillars:
-*   **Platform-Aware Self-Updates**: Built-in system checking GitHub Releases API, parsing architecture compatibility (Intel vs Apple Silicon), and downloading assets with explicit user consent.
+*   **Platform-Aware Self-Updates**: Built-in system checking GitHub Releases API, parsing architecture compatibility (Intel macOS vs Apple Silicon macOS vs Windows x64), and downloading correct assets with explicit user consent.
+*   **Multi-Platform Compilation**: Supports macOS ARM64, macOS Intel, and Windows x64 targets from a single unified codebase.
 *   **Size-First Optimized Indexing**: Files are indexed by exact byte size first. Hashing is only performed on size matches, skipping 90% of unique files automatically.
 *   **Rayon Parallel Processing**: Utilizes multi-threaded SHA-256 cryptographic hashing to run scans across all CPU cores.
 *   **Buffer-Streamed Hashing**: Reads file contents in constant 8KB chunks, preventing memory/RAM spikes on multi-gigabyte files.
-*   **macOS Sandbox Compliance**: Moves resolved files to the native macOS Trash (`~/.Trash`) using Finder APIs instead of executing permanent destructive commands.
+*   **Trash & Recycle Bin Compliance**: Relocates duplicates safely to your system's native trash folder (`~/.Trash` on macOS, Recycle Bin integration via `trash` crate on Windows) instead of executing permanent destructive deletions.
 
 ---
 
 ## 2. Installation & Setup
 
+### Target Build Commands
+You can compile targeted versions of the application locally:
+```bash
+# Apple Silicon (macOS arm64)
+npm run build:mac-arm
+
+# Intel Mac (macOS x86_64)
+npm run build:mac-intel
+
+# Windows (x64)
+npm run build:win
+
+# Build all targets
+npm run build:all
+```
+
 ### Terminal Installation (via curl)
 You can download, extract, and install the latest release directly into your `/Applications` folder using the following command in your terminal:
 ```bash
-curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
+curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/auDO-File-Z-v9000.5-macos-arm64.dmg
 ```
 
 > [!WARNING]
