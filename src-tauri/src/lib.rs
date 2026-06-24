@@ -33,7 +33,7 @@ pub struct ResolutionItem {
 }
 
 fn write_to_log_file(message: &str) {
-    if let Ok(home) = std::env::var("HOME") {
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         let log_dir = Path::new(&home).join(".config").join("auDO-File-Z");
         let _ = std::fs::create_dir_all(&log_dir);
         let log_path = log_dir.join("app.log");
@@ -56,7 +56,7 @@ fn write_to_log_file(message: &str) {
 
 #[tauri::command]
 fn read_log_file() -> Result<String, String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).map_err(|e| e.to_string())?;
     let log_path = Path::new(&home).join(".config").join("auDO-File-Z").join("app.log");
     if !log_path.exists() {
         return Ok("No log records found yet.".to_string());
@@ -66,7 +66,7 @@ fn read_log_file() -> Result<String, String> {
 
 #[tauri::command]
 fn clear_log_file() -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).map_err(|e| e.to_string())?;
     let log_path = Path::new(&home).join(".config").join("auDO-File-Z").join("app.log");
     if log_path.exists() {
         std::fs::remove_file(&log_path).map_err(|e| e.to_string())?;
@@ -77,25 +77,35 @@ fn clear_log_file() -> Result<(), String> {
 #[tauri::command]
 async fn check_fda() -> bool {
     write_to_log_file("FDA Check executed.");
-    let home = std::env::var("HOME").unwrap_or_default();
-    if home.is_empty() {
-        write_to_log_file("FDA Check failed: HOME env var not set.");
-        return false;
+    
+    #[cfg(not(target_os = "macos"))]
+    {
+        write_to_log_file("FDA Check bypassed: platform is not macOS.");
+        return true;
     }
-    let path = Path::new(&home).join("Library/Safari/Bookmarks.db");
-    match File::open(path) {
-        Ok(_) => {
-            write_to_log_file("FDA status verified: Active.");
-            true
+    
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if home.is_empty() {
+            write_to_log_file("FDA Check failed: HOME env var not set.");
+            return false;
         }
-        Err(e) => {
-            let has_fda = e.kind() != io::ErrorKind::PermissionDenied;
-            write_to_log_file(&format!(
-                "FDA status verified: {}. (File open error: {:?})",
-                if has_fda { "Active" } else { "Restricted" },
-                e
-            ));
-            has_fda
+        let path = Path::new(&home).join("Library/Safari/Bookmarks.db");
+        match File::open(path) {
+            Ok(_) => {
+                write_to_log_file("FDA status verified: Active.");
+                true
+            }
+            Err(e) => {
+                let has_fda = e.kind() != io::ErrorKind::PermissionDenied;
+                write_to_log_file(&format!(
+                    "FDA status verified: {}. (File open error: {:?})",
+                    if has_fda { "Active" } else { "Restricted" },
+                    e
+                ));
+                has_fda
+            }
         }
     }
 }
@@ -403,28 +413,35 @@ fn get_unique_trash_path(trash_dir: &Path, filename: &str) -> PathBuf {
 }
 
 fn move_to_trash_silent(src: &Path) -> std::io::Result<()> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    if home.is_empty() {
-        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "HOME env var not set"));
+    #[cfg(target_os = "windows")]
+    {
+        trash::delete(src).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
     }
-    let trash_dir = Path::new(&home).join(".Trash");
-    if !trash_dir.exists() {
-        std::fs::create_dir_all(&trash_dir)?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if home.is_empty() {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "HOME env var not set"));
+        }
+        let trash_dir = Path::new(&home).join(".Trash");
+        if !trash_dir.exists() {
+            std::fs::create_dir_all(&trash_dir)?;
+        }
+        
+        let filename = src.file_name().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid source file path")
+        })?;
+        let filename_str = filename.to_string_lossy();
+        let dest = get_unique_trash_path(&trash_dir, &filename_str);
+        
+        // Try std::fs::rename first
+        if let Err(_) = std::fs::rename(src, &dest) {
+            // Fallback for cross-device moves
+            std::fs::copy(src, &dest)?;
+            std::fs::remove_file(src)?;
+        }
+        Ok(())
     }
-    
-    let filename = src.file_name().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid source file path")
-    })?;
-    let filename_str = filename.to_string_lossy();
-    let dest = get_unique_trash_path(&trash_dir, &filename_str);
-    
-    // Try std::fs::rename first
-    if let Err(_) = std::fs::rename(src, &dest) {
-        // Fallback for cross-device moves
-        std::fs::copy(src, &dest)?;
-        std::fs::remove_file(src)?;
-    }
-    Ok(())
 }
 
 fn resolve_duplicates_internal<F>(
@@ -631,15 +648,17 @@ pub struct AppMetadata {
     pub version: String,
     pub os: String,
     pub arch: String,
+    pub platform: String,
+    pub architecture: String,
     pub build_platform: String,
 }
 
 const BUILD_ARCH: &str = if cfg!(target_arch = "aarch64") {
     "arm64"
 } else if cfg!(target_arch = "x86_64") {
-    "x86_64"
+    "x64"
 } else {
-    std::env::consts::ARCH
+    "x64"
 };
 
 const BUILD_OS: &str = if cfg!(target_os = "macos") {
@@ -647,26 +666,37 @@ const BUILD_OS: &str = if cfg!(target_os = "macos") {
 } else if cfg!(target_os = "windows") {
     "windows"
 } else {
-    std::env::consts::OS
+    "linux"
 };
+
+fn get_app_version() -> String {
+    let json_str = include_str!("../../version.json");
+    let v: serde_json::Value = serde_json::from_str(json_str).unwrap_or_default();
+    v["version"].as_str().unwrap_or("0.1.0").to_string()
+}
 
 #[tauri::command]
 fn get_app_metadata() -> AppMetadata {
     let os = BUILD_OS.to_string();
     let arch = BUILD_ARCH.to_string();
     let build_platform = format!("{}-{}", os, arch);
+    let version = get_app_version();
     
     AppMetadata {
-        version: "9000.4".to_string(),
-        os,
-        arch,
+        version,
+        os: os.clone(),
+        arch: arch.clone(),
+        platform: os,
+        architecture: arch,
         build_platform,
     }
 }
 
 #[tauri::command]
 async fn download_and_open_update(url: String, filename: String) -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|e| e.to_string())?;
     let downloads_dir = Path::new(&home).join("Downloads");
     let dest_path = downloads_dir.join(&filename);
 
@@ -688,11 +718,20 @@ async fn download_and_open_update(url: String, filename: String) -> Result<(), S
 
     write_to_log_file(&format!("Update download successful. Opening asset: '{}'", dest_path.display()));
 
-    // Open the DMG file (which mounts it)
-    std::process::Command::new("open")
-        .arg(&dest_path)
-        .spawn()
-        .map_err(|e| format!("Failed to open downloaded update: {}", e))?;
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dest_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open downloaded update: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&dest_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open downloaded update: {}", e))?;
+    }
 
     Ok(())
 }

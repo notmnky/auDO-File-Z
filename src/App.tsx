@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
+import versionInfo from "../version.json";
 import { 
   Settings, 
   ShieldAlert, 
@@ -53,7 +54,7 @@ const formatDate = (epochMillis: number): string => {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 };
 
-const APP_VERSION = "9000.4";
+const APP_VERSION = versionInfo.version;
 
 function App() {
   // App States
@@ -68,6 +69,8 @@ function App() {
     version: string;
     os: string;
     arch: string;
+    platform: string;
+    architecture: string;
     build_platform: string;
   } | null>(null);
 
@@ -196,17 +199,26 @@ function App() {
   const matchReleaseAsset = (assets: any[], os: string, arch: string) => {
     return assets.find(asset => {
       const name = asset.name.toLowerCase();
-      if (os === "macos") {
-        if (!name.endsWith(".dmg") && !name.endsWith(".tar.gz")) return false;
-        if (arch === "arm64" || arch === "aarch64") {
-          return name.includes("aarch64") || name.includes("arm64");
-        } else {
-          return name.includes("x86_64") || name.includes("intel") || (!name.includes("aarch64") && !name.includes("arm64"));
+      const cleanOs = os.toLowerCase();
+      const cleanArch = arch.toLowerCase();
+
+      if (cleanOs === "macos") {
+        if (!name.endsWith(".dmg")) return false;
+        if (cleanArch === "arm64" || cleanArch === "aarch64") {
+          return name.includes("macos-arm64");
+        } else if (cleanArch === "x64" || cleanArch === "x86_64" || cleanArch === "intel") {
+          return name.includes("macos-intel");
+        }
+      } else if (cleanOs === "windows" || cleanOs === "win") {
+        if (!name.endsWith(".exe")) return false;
+        if (cleanArch === "x64" || cleanArch === "x86_64") {
+          return name.includes("windows-x64");
         }
       }
       return false;
     });
   };
+
 
   // Run update check
   const runUpdateCheck = async (isManual: boolean = false) => {
