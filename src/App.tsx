@@ -580,9 +580,9 @@ function App() {
       
       {/* Title Bar */}
       <div className={`flex items-center justify-between h-[30px] font-bold text-sm select-none z-10 ${titleBarClass}`}>
-        <div className="flex items-center gap-1.5">
-          <Settings size={16} className={`${isDoors ? "text-white drop-shadow-[1px_1px_0px_rgba(0,0,0,0.5)]" : "text-[#FF6600]"}`} />
-          <span className={`${isDoors ? "drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" : ""}`}>auDO File Z - Cryptographic File Deduplicator</span>
+        <div className="flex items-center gap-1.5 px-2">
+          <img src="/afz-logo-sq.png" className="w-[16px] h-[16px] object-contain" alt="auDO File Z Logo" />
+          <span className={`${isDoors ? "drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" : ""}`}>auDO File Z by notMNKY</span>
         </div>
         <div className="flex items-center gap-1">
           {/* Minimize */}
@@ -634,6 +634,20 @@ function App() {
           )}
         </div>
 
+        {/* Pinned Donate Button */}
+        <div className="flex-grow" />
+        <button
+          onClick={() => openUrl("https://ko-fi.com/nishank").catch(console.error)}
+          className={`px-3 py-0.5 mr-1 text-[11px] font-bold cursor-default select-none border border-t-white border-l-white border-b-black border-r-black transition-colors ${
+            isDoors 
+              ? "bg-[#28A745] hover:bg-[#218838] text-white" 
+              : "bg-[#FF6600] hover:bg-[#e05300] text-white"
+          }`}
+          title="Support auDO File Z Development"
+        >
+          Donate
+        </button>
+
         {/* Edit Menu */}
         <div className="relative">
           <button 
@@ -665,6 +679,20 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Pinned Donate Button */}
+        <div className="flex-grow" />
+        <button
+          onClick={() => openUrl("https://ko-fi.com/nishank").catch(console.error)}
+          className={`px-3 py-0.5 mr-1 text-[11px] font-bold cursor-default select-none border border-t-white border-l-white border-b-black border-r-black transition-colors ${
+            isDoors 
+              ? "bg-[#28A745] hover:bg-[#218838] text-white" 
+              : "bg-[#FF6600] hover:bg-[#e05300] text-white"
+          }`}
+          title="Support auDO File Z Development"
+        >
+          Donate
+        </button>
 
         {/* View Menu (with Skins) */}
         <div className="relative">
@@ -705,6 +733,20 @@ function App() {
           )}
         </div>
 
+        {/* Pinned Donate Button */}
+        <div className="flex-grow" />
+        <button
+          onClick={() => openUrl("https://ko-fi.com/nishank").catch(console.error)}
+          className={`px-3 py-0.5 mr-1 text-[11px] font-bold cursor-default select-none border border-t-white border-l-white border-b-black border-r-black transition-colors ${
+            isDoors 
+              ? "bg-[#28A745] hover:bg-[#218838] text-white" 
+              : "bg-[#FF6600] hover:bg-[#e05300] text-white"
+          }`}
+          title="Support auDO File Z Development"
+        >
+          Donate
+        </button>
+
         {/* Help Menu */}
         <div className="relative">
           <button 
@@ -724,6 +766,20 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Pinned Donate Button */}
+        <div className="flex-grow" />
+        <button
+          onClick={() => openUrl("https://ko-fi.com/nishank").catch(console.error)}
+          className={`px-3 py-0.5 mr-1 text-[11px] font-bold cursor-default select-none border border-t-white border-l-white border-b-black border-r-black transition-colors ${
+            isDoors 
+              ? "bg-[#28A745] hover:bg-[#218838] text-white" 
+              : "bg-[#FF6600] hover:bg-[#e05300] text-white"
+          }`}
+          title="Support auDO File Z Development"
+        >
+          Donate
+        </button>
 
       </div>
 
@@ -1099,14 +1155,7 @@ function App() {
 
               {/* Action Trigger Buttons */}
               <div className="flex gap-2 w-full md:w-auto justify-end">
-                {fdaGranted && (
-                  <button 
-                    onClick={() => { setBypassFda(false); runFdaCheck(); }} 
-                    className={`px-3 py-1 text-xs flex items-center gap-1 ${buttonClassicClass}`}
-                  >
-                    Lock UI (Test Wizard)
-                  </button>
-                )}
+
                 <button 
                   onClick={handleResolve}
                   disabled={scanResults.length === 0}
@@ -1158,7 +1207,7 @@ function App() {
                 <Settings className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
                   <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO File Z</h3>
-                  <p className="text-gray-500">Version 9000 (Luna Edition)</p>
+                  <p className="text-gray-500">Version 9000.1</p>
                   <p className="text-gray-500 mt-1">© 2026 Nishank / notMNKY</p>
                 </div>
               </div>
