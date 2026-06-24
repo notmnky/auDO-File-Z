@@ -453,13 +453,15 @@ where
     }
 
     let mut resolved_count = 0;
+    let mut skipped_items: Vec<String> = Vec::new();
+
     for item in &items {
         let target_path = Path::new(&item.target);
         if !target_path.exists() {
             resolved_count += 1;
             write_to_log_file(&format!("Skipping file '{}' as it already does not exist.", item.target));
             if let Some(ref pf) = progress_fn {
-                pf(resolved_count);
+                pf(resolved_count + skipped_items.len());
             }
             continue; // Skip if already resolved
         }
@@ -468,11 +470,18 @@ where
 
         // 1. Move the target file to the macOS Trash silently
         if let Err(e) = move_to_trash_silent(target_path) {
-            write_to_log_file(&format!("Error: Failed to move '{}' to Trash: {:?}", item.target, e));
-            return Err(format!(
-                "Trash Error: Failed to move '{}' to Trash: {}",
-                item.target, e
+            // Permission denied or other fs error: log as warning and skip this file
+            // instead of aborting the entire batch operation.
+            let reason = format!("{} (os error {})", e.kind().to_string(), e.raw_os_error().unwrap_or(0));
+            write_to_log_file(&format!(
+                "Warning: Skipped '{}' — could not move to Trash: {}. Hint: check file permissions (chmod/chown) or if the file is locked.",
+                item.target, reason
             ));
+            skipped_items.push(item.target.clone());
+            if let Some(ref pf) = progress_fn {
+                pf(resolved_count + skipped_items.len());
+            }
+            continue;
         }
 
         // 2. If Symlink Preservation is toggled, create a symbolic link pointing to the original
@@ -504,12 +513,24 @@ where
 
         resolved_count += 1;
         if let Some(ref pf) = progress_fn {
-            pf(resolved_count);
+            pf(resolved_count + skipped_items.len());
         }
     }
 
-    write_to_log_file(&format!("Resolution complete. Successfully resolved {} of {} items.", resolved_count, items.len()));
-    Ok(format!("Successfully resolved {} duplicates.", resolved_count))
+    if skipped_items.is_empty() {
+        write_to_log_file(&format!("Resolution complete. Successfully resolved {} of {} items.", resolved_count, items.len()));
+        Ok(format!("Successfully resolved {} duplicates.", resolved_count))
+    } else {
+        write_to_log_file(&format!(
+            "Resolution complete with warnings. Resolved {} of {} items. Skipped {} items due to permission errors (see log).",
+            resolved_count, items.len(), skipped_items.len()
+        ));
+        // Return Ok with a summary message — the frontend will display it as a warning, not a hard error.
+        Ok(format!(
+            "Resolved {} of {} files. {} file(s) were skipped due to permission errors — open Help > View App Log for details.",
+            resolved_count, items.len(), skipped_items.len()
+        ))
+    }
 }
 
 #[tauri::command]

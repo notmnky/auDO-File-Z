@@ -493,12 +493,15 @@ function App() {
         items: resolutionItems,
         mode: resolutionMode
       });
-      
-      setStatusMessage(resMessage);
+
+      // Check if any files were skipped due to permission errors (partial success)
+      const hadSkipped = resMessage.includes("were skipped due to permission errors");
+      setStatusMessage(hadSkipped ? `⚠ ${resMessage}` : resMessage);
+
       setScanResults([]);
       setSelectedFiles({});
       setSelectionMode("manual");
-      
+
       // Auto-refresh scan to update lists
       handleScan();
     } catch (err) {
