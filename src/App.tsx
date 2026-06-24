@@ -786,6 +786,9 @@ function App() {
                     </button>
                   </div>
                 </div>
+                <div className={`text-[9px] mt-2.5 ${isDoors ? "text-gray-600" : "text-gray-400"}`}>
+                  Notice: Separate multiple custom extensions with commas (e.g. .mp3, .wav). Leave blank to scan all files.
+                </div>
               </div>
 
             </div>
