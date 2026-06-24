@@ -626,6 +626,77 @@ fn get_info(path: String) -> Result<(), String> {
     }
 }
 
+#[derive(Serialize)]
+pub struct AppMetadata {
+    pub version: String,
+    pub os: String,
+    pub arch: String,
+    pub build_platform: String,
+}
+
+const BUILD_ARCH: &str = if cfg!(target_arch = "aarch64") {
+    "arm64"
+} else if cfg!(target_arch = "x86_64") {
+    "x86_64"
+} else {
+    std::env::consts::ARCH
+};
+
+const BUILD_OS: &str = if cfg!(target_os = "macos") {
+    "macos"
+} else if cfg!(target_os = "windows") {
+    "windows"
+} else {
+    std::env::consts::OS
+};
+
+#[tauri::command]
+fn get_app_metadata() -> AppMetadata {
+    let os = BUILD_OS.to_string();
+    let arch = BUILD_ARCH.to_string();
+    let build_platform = format!("{}-{}", os, arch);
+    
+    AppMetadata {
+        version: "9000.4".to_string(),
+        os,
+        arch,
+        build_platform,
+    }
+}
+
+#[tauri::command]
+async fn download_and_open_update(url: String, filename: String) -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let downloads_dir = Path::new(&home).join("Downloads");
+    let dest_path = downloads_dir.join(&filename);
+
+    write_to_log_file(&format!("Starting download of update asset from '{}' to '{}'", url, dest_path.display()));
+
+    // Run curl to download the file
+    let status = std::process::Command::new("curl")
+        .arg("-L")
+        .arg("-o")
+        .arg(&dest_path)
+        .arg(&url)
+        .status()
+        .map_err(|e| format!("Failed to run curl: {}", e))?;
+
+    if !status.success() {
+        write_to_log_file("Update download failed via curl.");
+        return Err("curl failed to download the update asset.".to_string());
+    }
+
+    write_to_log_file(&format!("Update download successful. Opening asset: '{}'", dest_path.display()));
+
+    // Open the DMG file (which mounts it)
+    std::process::Command::new("open")
+        .arg(&dest_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open downloaded update: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -677,7 +748,9 @@ pub fn run() {
             get_info,
             cancel_scan,
             read_log_file,
-            clear_log_file
+            clear_log_file,
+            get_app_metadata,
+            download_and_open_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

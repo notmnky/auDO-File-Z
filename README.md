@@ -1,17 +1,17 @@
 # auDO File Z
 > **Nostalgic Cryptographic File Deduplication for macOS**  
-> *100% Air-Gapped, Offline Operational Security*
+> *Platform-Aware Approved Self-Update System*
 
 ---
 
 ## 1. Overview & Context
 
-**auDO File Z** (Version 9000.3) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
+**auDO File Z** (Version 9000.4) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
 
 The application is styled with a rigid, nostalgic **DoorsXP-Z** (formerly retro Luna Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon.
 
 ### Key Architectural Pillars:
-*   **Total Data Privacy**: 100% offline. Zero networking logic, telemetry tracking, or update checkers are permitted.
+*   **Platform-Aware Self-Updates**: Built-in system checking GitHub Releases API, parsing architecture compatibility (Intel vs Apple Silicon), and downloading assets with explicit user consent.
 *   **Size-First Optimized Indexing**: Files are indexed by exact byte size first. Hashing is only performed on size matches, skipping 90% of unique files automatically.
 *   **Rayon Parallel Processing**: Utilizes multi-threaded SHA-256 cryptographic hashing to run scans across all CPU cores.
 *   **Buffer-Streamed Hashing**: Reads file contents in constant 8KB chunks, preventing memory/RAM spikes on multi-gigabyte files.

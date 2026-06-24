@@ -53,8 +53,24 @@ const formatDate = (epochMillis: number): string => {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 };
 
+const APP_VERSION = "9000.4";
+
 function App() {
   // App States
+  const [showUpdatePrompt, setShowUpdatePrompt] = useState<boolean>(false);
+  const [updateTag, setUpdateTag] = useState<string>("");
+  const [updateBody, setUpdateBody] = useState<string>("");
+  const [updateAssetUrl, setUpdateAssetUrl] = useState<string>("");
+  const [updateAssetName, setUpdateAssetName] = useState<string>("");
+  const [isDownloadingUpdate, setIsDownloadingUpdate] = useState<boolean>(false);
+  const [updateDownloadStatus, setUpdateDownloadStatus] = useState<string>("");
+  const [appMetadata, setAppMetadata] = useState<{
+    version: string;
+    os: string;
+    arch: string;
+    build_platform: string;
+  } | null>(null);
+
   const [fdaGranted, setFdaGranted] = useState<boolean>(false);
   const [checkingFda, setCheckingFda] = useState<boolean>(false);
   const [selectedDirectory, setSelectedDirectory] = useState<string>("");
@@ -157,7 +173,101 @@ function App() {
   // Check FDA on mount
   useEffect(() => {
     runFdaCheck();
+    runUpdateCheck();
   }, []);
+
+  // Semantic Version Comparison
+  const isUpdateAvailable = (current: string, latest: string): boolean => {
+    const cleanCurrent = current.replace(/^v/, "");
+    const cleanLatest = latest.replace(/^v/, "");
+
+    const currentParts = cleanCurrent.split(".").map(Number);
+    const latestParts = cleanLatest.split(".").map(Number);
+
+    for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
+      const curr = currentParts[i] || 0;
+      const lat = latestParts[i] || 0;
+      if (lat > curr) return true;
+      if (curr > lat) return false;
+    }
+    return false;
+  };
+
+  // Find the appropriate release asset for current platform/architecture
+  const matchReleaseAsset = (assets: any[], os: string, arch: string) => {
+    return assets.find(asset => {
+      const name = asset.name.toLowerCase();
+      if (os === "macos") {
+        if (!name.endsWith(".dmg") && !name.endsWith(".tar.gz")) return false;
+        if (arch === "arm64" || arch === "aarch64") {
+          return name.includes("aarch64") || name.includes("arm64");
+        } else {
+          return name.includes("x86_64") || name.includes("intel") || (!name.includes("aarch64") && !name.includes("arm64"));
+        }
+      }
+      return false;
+    });
+  };
+
+  // Run update check
+  const runUpdateCheck = async () => {
+    try {
+      const metadata = await invoke<any>("get_app_metadata");
+      setAppMetadata(metadata);
+      
+      const response = await fetch("https://api.github.com/repos/notmnky/auDO-File-Z/releases/latest");
+      if (!response.ok) {
+        console.warn("Failed to check for updates: GitHub API returned status", response.status);
+        return;
+      }
+      
+      const data = await response.json();
+      const latestTag = data.tag_name;
+      const releaseBody = data.body || "No release notes provided.";
+      
+      // Check if user has skipped this version
+      const skippedVersion = localStorage.getItem("skipped_update_version");
+      if (skippedVersion === latestTag) {
+        console.log("Update available but skipped by user:", latestTag);
+        return;
+      }
+      
+      if (isUpdateAvailable(APP_VERSION, latestTag)) {
+        // Find matching asset
+        const asset = matchReleaseAsset(data.assets || [], metadata.os, metadata.arch);
+        if (asset) {
+          setUpdateTag(latestTag);
+          setUpdateBody(releaseBody);
+          setUpdateAssetUrl(asset.browser_download_url);
+          setUpdateAssetName(asset.name);
+          setShowUpdatePrompt(true);
+        } else {
+          console.warn("Update available but no matching asset found for architecture:", metadata.build_platform);
+        }
+      }
+    } catch (err) {
+      console.warn("Error running update check:", err);
+    }
+  };
+
+  const handlePerformUpdate = async () => {
+    setIsDownloadingUpdate(true);
+    setUpdateDownloadStatus("Downloading release asset from GitHub...");
+    try {
+      await invoke("download_and_open_update", {
+        url: updateAssetUrl,
+        filename: updateAssetName
+      });
+      setUpdateDownloadStatus("Download complete! Opening volume mount installer...");
+      setTimeout(() => {
+        setShowUpdatePrompt(false);
+        setIsDownloadingUpdate(false);
+      }, 2000);
+    } catch (err) {
+      console.error(err);
+      setUpdateDownloadStatus(`Failed to download update: ${err}`);
+    }
+  };
 
   // Close context menu on click-away
   useEffect(() => {
@@ -1315,7 +1425,7 @@ function App() {
                 <Settings className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
                   <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO File Z</h3>
-                  <p className="text-gray-500">Version 9000.2</p>
+                  <p className="text-gray-500">Version {APP_VERSION}</p>
                   <p className="text-gray-500 mt-1">© 2026 Nishank / notMNKY</p>
                 </div>
               </div>
@@ -1325,7 +1435,7 @@ function App() {
                 GitHub: <a href="#" onClick={(e) => { e.preventDefault(); openUrl("https://github.com/notMNKY").catch(console.error); }} className={`${isDoors ? "text-xp-blue" : "text-[#FF6600]"} underline`}>github.com/notMNKY</a><br />
                 Email: <a href="mailto:nishank@gmx.de" className={`${isDoors ? "text-xp-blue" : "text-[#FF6600]"} underline`}>nishank@gmx.de</a><br />
                 Support: <a href="#" onClick={(e) => { e.preventDefault(); openUrl("https://ko-fi.com/nishank").catch(console.error); }} className={`${isDoors ? "text-xp-blue" : "text-[#FF6600]"} underline font-bold`}>ko-fi.com/nishank</a><br />
-                <span className="text-gray-500 font-semibold">100% Offline / Air-Gapped Mode Active</span>
+                <span className="text-gray-500 font-semibold">Self-Update & Platform-Aware System Enabled</span>
               </div>
 
               <div className="flex justify-end mt-1">
@@ -1381,6 +1491,94 @@ function App() {
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update Prompt Dialog Modal */}
+      {showUpdatePrompt && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in">
+          <div className={`w-[400px] shadow-lg text-xs font-tahoma border-2 ${isDoors ? "xp-outset bg-xp-grey border-xp-blueDark" : "bg-[#181818] border-[#333333] text-white"}`}>
+            {/* Title Bar */}
+            <div className={`flex items-center justify-between h-[25px] px-1.5 font-bold ${isDoors ? "bg-gradient-to-r from-xp-blue to-xp-blueLight text-white" : "bg-[#1c1c1c] text-[#FF6600] border-b border-[#2c2c2c]"}`}>
+              <span className={isDoors ? "drop-shadow-[1px_1px_0px_rgba(0,0,0,0.5)]" : ""}>Software Update Available</span>
+              {!isDownloadingUpdate && (
+                <button 
+                  onClick={() => setShowUpdatePrompt(false)}
+                  className={`w-[16px] h-[16px] flex items-center justify-center text-[10px] text-white font-extrabold pb-0.5 rounded-[2px] ${isDoors ? "xp-btn-close" : "bg-[#333] hover:bg-red-600 border-none"}`}
+                >
+                  X
+                </button>
+              )}
+            </div>
+            {/* Body */}
+            <div className="p-4 flex flex-col gap-3.5">
+              <div className="flex gap-3">
+                <Info className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
+                <div>
+                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>A new version of auDO File Z is available!</h3>
+                  <p className="text-gray-500 mt-0.5">Version {updateTag} is now available (Current: {APP_VERSION}).</p>
+                </div>
+              </div>
+
+              {/* Release Notes */}
+              <div className="flex flex-col gap-1">
+                <span className="font-semibold text-gray-500">Release Notes:</span>
+                <div className={`p-2.5 leading-relaxed text-[10px] select-text overflow-y-auto max-h-[120px] rounded-[1px] whitespace-pre-wrap ${isDoors ? "xp-inset bg-white text-gray-700" : "bg-[#121212] border border-[#2a2a2a] text-gray-300"}`}>
+                  {updateBody}
+                </div>
+              </div>
+
+              {/* Target Asset Info */}
+              <div className="text-[10px] text-gray-500 flex flex-col gap-0.5">
+                <span>Platform Match: <strong>{appMetadata?.build_platform}</strong></span>
+                <span>Downloading: <strong>{updateAssetName}</strong></span>
+              </div>
+
+              {/* Download Progress Status */}
+              {isDownloadingUpdate && (
+                <div className={`p-2.5 text-center font-semibold rounded-[1px] text-[10px] ${isDoors ? "bg-blue-50 text-xp-blueDark" : "bg-[#FF6600]/10 text-[#FF6600]"}`}>
+                  <div className="animate-pulse mb-1.5">{updateDownloadStatus}</div>
+                  <div className={`h-[12px] w-full rounded-[1px] overflow-hidden ${isDoors ? "xp-inset bg-white" : "bg-[#121212] border border-[#2a2a2a]"}`}>
+                    <div 
+                      className={`h-full ${isDoors ? "bg-gradient-to-r from-xp-blueLight to-xp-blue" : "bg-[#FF6600]"}`}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-between items-center mt-1">
+                <button 
+                  onClick={() => {
+                    localStorage.setItem("skipped_update_version", updateTag);
+                    setShowUpdatePrompt(false);
+                  }}
+                  disabled={isDownloadingUpdate}
+                  className={`px-3 py-1 ${buttonClassicClass} text-red-700`}
+                  title="Skip notification prompts for this version tag"
+                >
+                  Skip Version
+                </button>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setShowUpdatePrompt(false)}
+                    disabled={isDownloadingUpdate}
+                    className={`px-3 py-1 ${buttonClassicClass}`}
+                  >
+                    Remind Later
+                  </button>
+                  <button 
+                    onClick={handlePerformUpdate}
+                    disabled={isDownloadingUpdate}
+                    className={`px-4 py-1 flex items-center gap-1 ${buttonBlueClass}`}
+                  >
+                    {isDownloadingUpdate ? "Downloading..." : "Update Now"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
