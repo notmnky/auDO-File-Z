@@ -312,8 +312,59 @@ async fn start_scan(
     run_scan_internal(&path, &extensions, &state.is_cancelled, Some(progress_fn))
 }
 
-#[tauri::command]
-async fn resolve_duplicates(items: Vec<ResolutionItem>, mode: String) -> Result<String, String> {
+fn get_unique_trash_path(trash_dir: &Path, filename: &str) -> PathBuf {
+    let mut dest = trash_dir.join(filename);
+    if !dest.exists() {
+        return dest;
+    }
+    let path = Path::new(filename);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+    
+    let mut counter = 1;
+    loop {
+        let new_name = format!("{}_{}{}", stem, counter, ext);
+        dest = trash_dir.join(&new_name);
+        if !dest.exists() {
+            return dest;
+        }
+        counter += 1;
+    }
+}
+
+fn move_to_trash_silent(src: &Path) -> std::io::Result<()> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "HOME env var not set"));
+    }
+    let trash_dir = Path::new(&home).join(".Trash");
+    if !trash_dir.exists() {
+        std::fs::create_dir_all(&trash_dir)?;
+    }
+    
+    let filename = src.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid source file path")
+    })?;
+    let filename_str = filename.to_string_lossy();
+    let dest = get_unique_trash_path(&trash_dir, &filename_str);
+    
+    // Try std::fs::rename first
+    if let Err(_) = std::fs::rename(src, &dest) {
+        // Fallback for cross-device moves
+        std::fs::copy(src, &dest)?;
+        std::fs::remove_file(src)?;
+    }
+    Ok(())
+}
+
+fn resolve_duplicates_internal<F>(
+    items: Vec<ResolutionItem>,
+    mode: String,
+    progress_fn: Option<F>,
+) -> Result<String, String>
+where
+    F: Fn(usize) + Send + Sync,
+{
     if items.is_empty() {
         return Ok("No files to resolve.".to_string());
     }
@@ -335,11 +386,15 @@ async fn resolve_duplicates(items: Vec<ResolutionItem>, mode: String) -> Result<
     for item in &items {
         let target_path = Path::new(&item.target);
         if !target_path.exists() {
+            resolved_count += 1;
+            if let Some(ref pf) = progress_fn {
+                pf(resolved_count);
+            }
             continue; // Skip if already resolved
         }
 
-        // 1. Move the target file to the macOS Trash using macOS system APIs
-        if let Err(e) = trash::delete(target_path) {
+        // 1. Move the target file to the macOS Trash silently
+        if let Err(e) = move_to_trash_silent(target_path) {
             return Err(format!(
                 "Trash Error: Failed to move '{}' to Trash: {}",
                 item.target, e
@@ -372,9 +427,24 @@ async fn resolve_duplicates(items: Vec<ResolutionItem>, mode: String) -> Result<
         }
 
         resolved_count += 1;
+        if let Some(ref pf) = progress_fn {
+            pf(resolved_count);
+        }
     }
 
     Ok(format!("Successfully resolved {} duplicates.", resolved_count))
+}
+
+#[tauri::command]
+async fn resolve_duplicates(
+    app: tauri::AppHandle,
+    items: Vec<ResolutionItem>,
+    mode: String,
+) -> Result<String, String> {
+    let progress_fn = move |count| {
+        let _ = app.emit("resolve-progress", count);
+    };
+    resolve_duplicates_internal(items, mode, Some(progress_fn))
 }
 
 #[tauri::command]
@@ -576,7 +646,7 @@ mod tests {
             }
         ];
         
-        let res = tauri::async_runtime::block_on(resolve_duplicates(res_items, "delete".to_string()));
+        let res = resolve_duplicates_internal(res_items, "delete".to_string(), None::<fn(usize)>);
         assert!(res.is_ok());
         // file_2 must be gone, file_1 must still exist
         assert!(!file_2.exists());
@@ -589,7 +659,7 @@ mod tests {
                 original: file_1.to_string_lossy().into_owned(),
             }
         ];
-        let bad_res = tauri::async_runtime::block_on(resolve_duplicates(bad_items, "symlink".to_string()));
+        let bad_res = resolve_duplicates_internal(bad_items, "symlink".to_string(), None::<fn(usize)>);
         assert!(bad_res.is_err()); // Circular link check failed
 
         // Clean up sandbox
