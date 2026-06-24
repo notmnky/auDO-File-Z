@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import { 
@@ -66,6 +66,70 @@ function App() {
   const [statusMessage, setStatusMessage] = useState<string>("Ready");
   const [bypassFda, setBypassFda] = useState<boolean>(false); 
 
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    filePath: string;
+  } | null>(null);
+
+  // Audio Preview States
+  const [playingPath, setPlayingPath] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // References for closing menus on clicking outside
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Audio configuration & helpers
+  const AUDIO_EXTENSIONS = [".mp3", ".wav", ".flac", ".aif", ".aiff", ".aac", ".m4a", ".ogg"];
+  const isAudioFile = (filename: string) => {
+    const lower = filename.toLowerCase();
+    return AUDIO_EXTENSIONS.some(ext => lower.endsWith(ext));
+  };
+
+  const playPreview = (path: string) => {
+    if (playingPath === path) {
+      if (audioRef.current) {
+        if (audioRef.current.paused) {
+          audioRef.current.play().catch(err => {
+            console.error("Audio playback error:", err);
+            setStatusMessage(`Playback error: ${err}`);
+          });
+        } else {
+          audioRef.current.pause();
+          setPlayingPath(null);
+          setStatusMessage("Preview paused.");
+        }
+      }
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      try {
+        const assetUrl = convertFileSrc(path);
+        const audio = new Audio(assetUrl);
+        audioRef.current = audio;
+        setPlayingPath(path);
+        setStatusMessage(`Playing preview: ${path.substring(path.lastIndexOf('/') + 1)}`);
+        
+        audio.play().catch(err => {
+          console.error("Audio playback error:", err);
+          setStatusMessage(`Playback error: ${err}`);
+          setPlayingPath(null);
+        });
+
+        audio.onended = () => {
+          setPlayingPath(null);
+          setStatusMessage("Preview ended.");
+        };
+      } catch (err) {
+        console.error("Audio initialization error:", err);
+        setStatusMessage(`Playback error: ${err}`);
+      }
+    }
+  };
+
   // Selection & Skins States
   const [selectionMode, setSelectionMode] = useState<"manual" | "oldest" | "newest">("manual");
   const [showAbout, setShowAbout] = useState<boolean>(false);
@@ -87,6 +151,22 @@ function App() {
 
     return () => {
       if (unlistenProgress) unlistenProgress();
+    };
+  }, []);
+
+  // Close context menu on click-away
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    document.addEventListener("click", closeMenu);
+    return () => document.removeEventListener("click", closeMenu);
+  }, []);
+
+  // Stop audio playback on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
     };
   }, []);
 
@@ -767,6 +847,13 @@ function App() {
                       {extensions.length}/300 characters
                     </div>
                   </div>
+                  <button 
+                    onClick={() => setExtensions(".mp3, .wav, .flac, .aiff, .aac, .m4a, .ogg")}
+                    className={`px-2 py-1 text-[11px] h-[28px] whitespace-nowrap ${buttonClassicClass}`}
+                    title="Load common audio formats preset"
+                  >
+                    Audio files only
+                  </button>
                   <div className="flex items-center gap-2">
                     {isScanning && (
                       <span className="text-[10px] font-mono font-bold animate-pulse text-gray-500 whitespace-nowrap">
@@ -896,7 +983,17 @@ function App() {
                               <div 
                                 key={file.path} 
                                 onClick={() => toggleFile(file.path)}
-                                className={`grid grid-cols-12 text-xs py-1.5 items-center cursor-pointer ${dataGridRowClass(isKeep)}`}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setContextMenu({
+                                    visible: true,
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                    filePath: file.path
+                                  });
+                                }}
+                                className={`grid grid-cols-12 text-xs py-1.5 items-center cursor-pointer group ${dataGridRowClass(isKeep)}`}
                               >
                                 {/* Checkbox Selector */}
                                 <div className="col-span-1 flex justify-center items-center" onClick={(e) => e.stopPropagation()}>
@@ -916,6 +1013,23 @@ function App() {
                                     </span>
                                   )}
                                   <span className={isKeep && !isDoors ? "text-white" : ""}>{file.filename}</span>
+                                  
+                                  {isAudioFile(file.filename) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        playPreview(file.path);
+                                      }}
+                                      className={`ml-1.5 p-0.5 w-[16px] h-[16px] flex items-center justify-center rounded-[2px] transition-opacity select-none border text-[9px] leading-none ${
+                                        playingPath === file.path
+                                          ? (isDoors ? "bg-xp-blue text-white border-xp-blue" : "bg-[#FF6600] text-black border-[#FF6600]")
+                                          : (isDoors ? "bg-white text-gray-700 border-gray-300 hover:bg-gray-100" : "bg-[#222] text-gray-300 border-[#444] hover:bg-[#333]")
+                                      } ${playingPath === file.path ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                                      title={playingPath === file.path ? "Pause audio preview" : "Play audio preview"}
+                                    >
+                                      {playingPath === file.path ? "⏸" : "▶"}
+                                    </button>
+                                  )}
                                 </div>
 
                                 {/* Original Folder Path */}
