@@ -66,6 +66,12 @@ function App() {
   const [statusMessage, setStatusMessage] = useState<string>("Ready");
   const [bypassFda, setBypassFda] = useState<boolean>(false); 
 
+  // Selection & Skins States
+  const [selectionMode, setSelectionMode] = useState<"manual" | "oldest" | "newest">("manual");
+  const [showAbout, setShowAbout] = useState<boolean>(false);
+  const [activeMenu, setActiveMenu] = useState<"file" | "edit" | "view" | "help" | null>(null);
+  const [theme, setTheme] = useState<"doors" | "vinyl">("doors");
+
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -130,28 +136,21 @@ function App() {
     }
   };
 
-  // Selection & Skins States (featuring VinylBox-Z dark theme)
-  const [selectionMode, setSelectionMode] = useState<"manual" | "oldest" | "newest">("manual");
-  const [showAbout, setShowAbout] = useState<boolean>(false);
-  const [activeMenu, setActiveMenu] = useState<"file" | "edit" | "view" | "help" | null>(null);
-  const [theme, setTheme] = useState<"doors" | "vinyl">("doors");
+  // Reclaimed Space live calculations
+  const reclaimedFilesCount = Object.entries(selectedFiles).filter(([_, checked]) => checked).length;
+  const reclaimedBytes = scanResults.reduce((sum, group) => {
+    let groupSum = 0;
+    group.files.forEach(file => {
+      if (selectedFiles[file.path]) {
+        groupSum += file.size;
+      }
+    });
+    return sum + groupSum;
+  }, 0);
 
-  // References for closing menus on clicking outside
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Listen for scan progress events
+  // Check FDA on mount
   useEffect(() => {
-    let unlistenProgress: (() => void) | null = null;
-    
-    listen<number>("scan-progress", (event) => {
-      setScanProgress(event.payload);
-    }).then((unsub) => {
-      unlistenProgress = unsub;
-    }).catch(console.error);
-
-    return () => {
-      if (unlistenProgress) unlistenProgress();
-    };
+    runFdaCheck();
   }, []);
 
   // Close context menu on click-away
@@ -168,11 +167,6 @@ function App() {
         audioRef.current.pause();
       }
     };
-  }, []);
-
-  // Check FDA on mount
-  useEffect(() => {
-    runFdaCheck();
   }, []);
 
   // Listen for native menu theme change events
@@ -192,6 +186,23 @@ function App() {
     return () => {
       if (unlisten) {
         unlisten();
+      }
+    };
+  }, []);
+
+  // Listen for scan progress events
+  useEffect(() => {
+    let unlistenProgress: (() => void) | null = null;
+    
+    listen<number>("scan-progress", (event) => {
+      setScanProgress(event.payload);
+    }).then((unsub) => {
+      unlistenProgress = unsub;
+    }).catch(console.error);
+
+    return () => {
+      if (unlistenProgress) {
+        unlistenProgress();
       }
     };
   }, []);
@@ -634,20 +645,6 @@ function App() {
           )}
         </div>
 
-        {/* Pinned Donate Button */}
-        <div className="flex-grow" />
-        <button
-          onClick={() => openUrl("https://ko-fi.com/nishank").catch(console.error)}
-          className={`px-3 py-0.5 mr-1 text-[11px] font-bold cursor-default select-none border border-t-white border-l-white border-b-black border-r-black transition-colors ${
-            isDoors 
-              ? "bg-[#28A745] hover:bg-[#218838] text-white" 
-              : "bg-[#FF6600] hover:bg-[#e05300] text-white"
-          }`}
-          title="Support auDO File Z Development"
-        >
-          Donate
-        </button>
-
         {/* Edit Menu */}
         <div className="relative">
           <button 
@@ -679,20 +676,6 @@ function App() {
             </div>
           )}
         </div>
-
-        {/* Pinned Donate Button */}
-        <div className="flex-grow" />
-        <button
-          onClick={() => openUrl("https://ko-fi.com/nishank").catch(console.error)}
-          className={`px-3 py-0.5 mr-1 text-[11px] font-bold cursor-default select-none border border-t-white border-l-white border-b-black border-r-black transition-colors ${
-            isDoors 
-              ? "bg-[#28A745] hover:bg-[#218838] text-white" 
-              : "bg-[#FF6600] hover:bg-[#e05300] text-white"
-          }`}
-          title="Support auDO File Z Development"
-        >
-          Donate
-        </button>
 
         {/* View Menu (with Skins) */}
         <div className="relative">
@@ -733,20 +716,6 @@ function App() {
           )}
         </div>
 
-        {/* Pinned Donate Button */}
-        <div className="flex-grow" />
-        <button
-          onClick={() => openUrl("https://ko-fi.com/nishank").catch(console.error)}
-          className={`px-3 py-0.5 mr-1 text-[11px] font-bold cursor-default select-none border border-t-white border-l-white border-b-black border-r-black transition-colors ${
-            isDoors 
-              ? "bg-[#28A745] hover:bg-[#218838] text-white" 
-              : "bg-[#FF6600] hover:bg-[#e05300] text-white"
-          }`}
-          title="Support auDO File Z Development"
-        >
-          Donate
-        </button>
-
         {/* Help Menu */}
         <div className="relative">
           <button 
@@ -776,7 +745,7 @@ function App() {
               ? "bg-[#28A745] hover:bg-[#218838] text-white" 
               : "bg-[#FF6600] hover:bg-[#e05300] text-white"
           }`}
-          title="Support auDO File Z Development"
+          title="Support Nishank / notMNKY on Ko-fi"
         >
           Donate
         </button>
@@ -888,7 +857,7 @@ function App() {
               {/* Extensions GroupBox */}
               <div className={`relative pt-4 px-3 pb-3 rounded-[3px] ${groupBoxClass}`}>
                 <span className={`absolute -top-2.5 left-2 px-1 text-[11px] font-bold ${groupBoxLegendClass}`}>
-                  Enter file extension here
+                  Enter file extension here (or leave blank to search all file extensions)
                 </span>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 relative">
@@ -1155,7 +1124,6 @@ function App() {
 
               {/* Action Trigger Buttons */}
               <div className="flex gap-2 w-full md:w-auto justify-end">
-
                 <button 
                   onClick={handleResolve}
                   disabled={scanResults.length === 0}
@@ -1182,10 +1150,61 @@ function App() {
         <div className={`w-[120px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
           Offline Mode: Yes
         </div>
+        <div className={`w-[220px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
+          Ready to free up: {reclaimedFilesCount} files ({formatBytes(reclaimedBytes)})
+        </div>
         <div className="w-[150px] px-2 py-0.5 truncate font-semibold text-right">
           FDA Status: {fdaGranted ? "✓ Active" : "✗ Restricted"}
         </div>
       </div>
+
+      {/* Custom Context Menu */}
+      {contextMenu && contextMenu.visible && (
+        <div 
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className={`fixed z-50 py-1 w-[150px] shadow-lg border text-xs font-tahoma cursor-default select-none ${
+            isDoors 
+              ? "bg-xp-grey border-xp-greyShadow border-t-white border-l-white border-b-black border-r-black text-black" 
+              : "bg-[#1a1a1a] border border-[#333333] text-[#e0e0e0]"
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              setContextMenu(null);
+              try {
+                await invoke("show_in_finder", { path: contextMenu.filePath });
+              } catch (err) {
+                console.error(err);
+                setStatusMessage(`Error: ${err}`);
+              }
+            }}
+            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-1 ${
+              isDoors ? "hover:bg-xp-blueDark hover:text-white" : "hover:bg-[#FF6600] hover:text-white"
+            }`}
+          >
+            Show in Finder
+          </button>
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              setContextMenu(null);
+              try {
+                await invoke("get_info", { path: contextMenu.filePath });
+              } catch (err) {
+                console.error(err);
+                setStatusMessage(`Error: ${err}`);
+              }
+            }}
+            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-1 ${
+              isDoors ? "hover:bg-xp-blueDark hover:text-white" : "hover:bg-[#FF6600] hover:text-white"
+            }`}
+          >
+            Get Info
+          </button>
+        </div>
+      )}
 
       {/* About Box Modal */}
       {showAbout && (

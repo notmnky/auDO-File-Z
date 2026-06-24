@@ -6,9 +6,9 @@
 
 ## 1. Overview & Context
 
-**auDO File Z** (Version 9000) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
+**auDO File Z** (Version 9000.1) is a high-performance, native macOS full-stack desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
 
-The application is styled with a rigid, nostalgic **Windows XP (Luna Theme)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon.
+The application is styled with a rigid, nostalgic **DoorsXP-Z** (formerly retro Luna Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon.
 
 ### Key Architectural Pillars:
 *   **Total Data Privacy**: 100% offline. Zero networking logic, telemetry tracking, or update checkers are permitted.
@@ -24,7 +24,7 @@ The application is styled with a rigid, nostalgic **Windows XP (Luna Theme)** ae
 ### Terminal Installation (via curl)
 You can download, extract, and install the latest release directly into your `/Applications` folder using the following command in your terminal:
 ```bash
-curl -L -s https://github.com/notMNKY/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
+curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
 ```
 
 > [!WARNING]
@@ -42,16 +42,40 @@ To read protected user directories and calculate file hashes, macOS requires Ful
 
 ---
 
-## 3. Configuration & Scanning
+## 3. Operation Flowchart
 
-1.  **Select Directory**: Click the **Browse...** button to launch the native directory selector and target your search folder.
-2.  **Filter Extensions**: Enter comma-separated formats in the extension textbox (e.g. `.mp3, .wav, .flac, .aif`).
-    *   *Note*: The textbox is strictly limited to 300 characters. If left completely blank, the scanner automatically walks and checks all file types.
-3.  **Run Scan**: Click the **Scan** button. Rayon threads will crawl, pre-filter, hash duplicate size candidates in parallel, and populate the retro grid.
+The following flowchart describes the step-by-step application logic path:
+
+```mermaid
+graph TD
+    A[Launch App] --> B[Run Automated Safari Bookmarks database FDA Check]
+    B --> C{If Restricted?}
+    C -- Yes --> D[Show Onboarding Wizard Window]
+    D --> E[Configure Folder Scan Range]
+    C -- No --> E
+    E --> F[Execute Scan Thread or Trigger Stop Interrupt]
+    F --> G[Review Grouped Cryptographic SHA-256 Clusters via DoorsXP-Z or VinylBox-Z Skins]
+    G --> H[Adjust Manual Override Checkboxes / Auto-Selection Dropdowns]
+    H --> I[Select Target Action Pattern<br>Move to Trash vs Symlink Preservation]
+    I --> J[Click 'Go!' Button to Complete Resolution Loop]
+```
 
 ---
 
-## 4. Selection & Resolution Modes
+## 4. Configuration & Scanning
+
+### Running Extension Sweeps
+1.  **Select Directory**: Click the **Browse...** button to launch the native directory selector and target your search folder.
+2.  **Filter Extensions**: Enter comma-separated formats in the extension textbox (e.g. `.mp3, .wav, .flac`).
+    *   **Custom Extension Sweeps**: You can input custom extensions like `.txt, .png, .pdf`. Separate them with commas. The textbox is limited to 300 characters.
+    *   **Empty State Default**: By default, the extension field defaults to an empty string. Leaving it completely blank will scan all file types.
+3.  **One-Click "Audio files only" Macros**:
+    *   Click the **Audio files only** shortcut button to automatically load common audio extensions: `.mp3, .wav, .flac, .aiff, .aac, .m4a, .ogg`.
+4.  **Run Scan**: Click the **Scan** button. Rayon threads will crawl, pre-filter, hash duplicate size candidates in parallel, and populate the grid.
+
+---
+
+## 5. Selection & Resolution Modes
 
 ### Dynamic Selection Mode
 Using the dropdown above the table, choose how checkmarks are set:
@@ -63,10 +87,11 @@ Using the dropdown above the table, choose how checkmarks are set:
 Before resolving duplicates, toggle the action type at the bottom:
 1.  **Clean Delete (Move to Trash)**: Relocates checked duplicates to your macOS Trash.
 2.  **Link Preservation**: Moves duplicate copies to Trash and instantly replaces them with symbolic links pointing directly back to the preserved original copy.
+3.  Click the **Go!** button to execute the resolution loop.
 
 ---
 
-## 5. Dynamic Skin Swapping
+## 6. Dynamic Skin Swapping
 
 Customize the application's visual layout dynamically to match your preference:
 *   **DoorsXP-Z (Retro)**: The default nostalgic Windows XP Luna theme featuring a bright blue title bar, retro grey bevels, and classic `#ECE9D8` dialog boxes.
@@ -76,15 +101,16 @@ You can toggle skins instantly by selecting them from the native macOS applicati
 
 ---
 
-## 6. Safety Mitigation Guardrails
+## 7. Safety Mitigation Guardrails
 
 *   **Anti-Data Loss validation**: You can change checkpoints freely, but the application enforces that at least one copy in each duplicate group must remain unchecked. If you attempt to check all copies, a flashing warning displays and disables the action button.
 *   **Circular Symlink Block**: The Rust backend validates that the target preserved file is not itself scheduled for deletion in the queue. If a circular reference loop is detected, the command aborts.
 
 ---
 
-## 7. Development & Credits
+## 8. Development & Credits
 *   **Author**: Nishank / notMNKY
 *   **Email**: [nishank@gmx.de](mailto:nishank@gmx.de)
 *   **Support Developer**: [Kofi Support Profile](https://ko-fi.com/nishank)
 *   **Frameworks**: Tauri v2, React + TS, Tailwind CSS v3, Rust (std::fs, rayon, sha2, trash, rfd)
+*   **Master Repository**: [https://github.com/notmnky/auDO-File-Z](https://github.com/notmnky/auDO-File-Z)
