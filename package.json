@@ -1,7 +1,7 @@
 {
   "name": "tauri-app",
   "private": true,
-  "version": "9000.1.0",
+  "version": "9000.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
