@@ -8,7 +8,7 @@
 
 **auDO File Z** (Version 9000) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
 
-The application is styled with a rigid, nostalgic **DoorsXP-Z** (formerly retro Luna Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon (macOS arm64), Intel Mac (macOS x86_64), and Windows (x64).
+The application is styled with a rigid, nostalgic **DoorsXP-Z** (retro Windows XP Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon (macOS arm64), Intel Mac (macOS x86_64), and Windows (x64).
 
 ### Key Architectural Pillars:
 *   **Platform-Aware Self-Updates**: Built-in system checking GitHub Releases API, parsing architecture compatibility (Intel macOS vs Apple Silicon macOS vs Windows x64), and downloading correct assets with explicit user consent.
@@ -128,7 +128,7 @@ Before resolving duplicates, toggle the action type at the bottom:
 ## 6. Dynamic Skin Swapping
 
 Customize the application's visual layout dynamically to match your preference:
-*   **DoorsXP-Z (Retro)**: The default nostalgic Windows XP Luna theme featuring a bright blue title bar, retro grey bevels, and classic `#ECE9D8` dialog boxes.
+*   **DoorsXP-Z (Retro)**: The default nostalgic Windows XP theme featuring a bright blue title bar, retro grey bevels, and classic `#ECE9D8` dialog boxes.
 *   **VinylBox-Z (Dark)**: A dark, sleek, professional theme mimicking the Rekordbox / AlphaTheta DJ aesthetic, featuring matte black backgrounds (`#121212`), high-contrast neon orange accents (`#FF6600`), flat edges, and customized dark scrollbars.
 
 You can toggle skins instantly by selecting them from the native macOS application menu under **View > Skins** or the custom in-window dropdown menu.
