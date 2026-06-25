@@ -1,6 +1,6 @@
 [package]
 name = "audofilez"
-version = "0.1.0"
+version = "9000.1.0"
 description = "auDO File Z - Nostalgic Cryptographic File Deduplication for macOS"
 authors = ["you"]
 edition = "2021"
