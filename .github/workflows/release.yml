@@ -1,24 +1,22 @@
-name: Release
+name: "Release Publish"
 
 on:
   push:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-
 jobs:
-  release:
-    name: Build and Package
+  publish-tauri:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            os: macos
-          - platform: windows-latest
-            os: windows
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+          - platform: "windows-latest"
+            args: ""
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -29,56 +27,23 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      - name: Install Rust
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build macOS binaries
-        if: matrix.os == 'macos'
-        run: |
-          npm run build:mac-arm
-          npm run build:mac-intel
-
-      - name: Build Windows binaries
-        if: matrix.os == 'windows'
-        run: |
-          npm run build:win
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-assets-${{ matrix.os }}
-          path: releases/*
-          if-no-files-found: error
-
-  publish:
-    name: Create GitHub Release
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-assets-*
-          merge-multiple: true
-          path: releases
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            releases/*.dmg
-            releases/*.exe
-          draft: false
-          prerelease: false
+      - name: Build and Publish Tauri App
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "auDO File Z ${{ github.ref_name }}"
+          releaseBody: "Nostalgic Cryptographic File Deduplication for macOS (Apple Silicon) and Windows."
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

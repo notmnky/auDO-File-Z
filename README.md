@@ -38,18 +38,26 @@ npm run build:win
 npm run build:all
 ```
 
-### Terminal Installation (via curl)
-You can download, extract, and install the latest release directly into your `/Applications` folder using the following command in your terminal:
-```bash
-curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/auDO-File-Z-v9000.5-macos-arm64.dmg
-```
+### macOS Installation
+1. Download the latest **`audofilez.app.tar.gz`** or **`auDO File Z_0.1.0_aarch64.dmg`** from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
+2. Alternatively, install it directly to `/Applications` via your Terminal:
+   ```bash
+   curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
+   ```
 
 > [!WARNING]
-> **macOS Gatekeeper Warning**: Because this application is compiled locally and is not signed/notarized with a paid Apple Developer Account, macOS will block it from running with a warning.
+> **macOS Gatekeeper Warning**: Because this application is compiled locally and is not signed/notarized with a paid Apple Developer Account, macOS will block it from running.
 > To bypass this, run the following command in your Terminal to strip the quarantine flag:
 > ```bash
 > xattr -cr /Applications/auDO\ File\ Z.app
 > ```
+
+### Windows Installation
+1. Download the latest **`auDO File Z_0.1.0_x64_en-US.msi`** installer from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
+2. Double-click the `.msi` file to run the setup wizard.
+3. If Windows Defender SmartScreen blocks the app during launch:
+   * Click **More info**.
+   * Click **Run anyway**.
 
 ### Full Disk Access (FDA) Onboarding
 To read protected user directories and calculate file hashes, macOS requires Full Disk Access:
