@@ -39,7 +39,7 @@ npm run build:all
 ```
 
 ### macOS Installation
-1. Download the latest **`audofilez.app.tar.gz`** or **`auDO File Z_9000.4.0_aarch64.dmg`** from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
+1. Download the latest **`audofilez.app.tar.gz`** or **`auDO File Z_0.1.9004_aarch64.dmg`** from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
 2. Alternatively, install it directly to `/Applications` via your Terminal:
    ```bash
    curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
@@ -55,7 +55,7 @@ npm run build:all
 > ```
 
 ### Windows Installation
-1. Download the latest **`auDO File Z_9000.4.0_x64_en-US.msi`** installer from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
+1. Download the latest **`auDO File Z_0.1.9004_x64_en-US.msi`** installer from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
 2. Double-click the `.msi` file to run the setup wizard.
 3. If Windows Defender SmartScreen blocks the app during launch:
    * Click **More info**.
