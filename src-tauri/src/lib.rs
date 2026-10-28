@@ -736,6 +736,26 @@ async fn download_and_open_update(url: String, filename: String) -> Result<(), S
     Ok(())
 }
 
+#[tauri::command]
+async fn window_minimize(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn window_toggle_maximize(window: tauri::Window) -> Result<(), String> {
+    let is_max = window.is_maximized().map_err(|e| e.to_string())?;
+    if is_max {
+        window.unmaximize().map_err(|e| e.to_string())
+    } else {
+        window.maximize().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+async fn window_close(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -789,7 +809,10 @@ pub fn run() {
             read_log_file,
             clear_log_file,
             get_app_metadata,
-            download_and_open_update
+            download_and_open_update,
+            window_minimize,
+            window_toggle_maximize,
+            window_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

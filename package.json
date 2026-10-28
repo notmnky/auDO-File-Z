@@ -1,7 +1,18 @@
 {
-  "name": "tauri-app",
+  "name": "audo-file-z",
+  "productName": "auDO File Z",
+  "description": "auDO File Z - Nostalgic Cryptographic File Deduplication for macOS and Windows",
   "private": true,
   "version": "0.1.9004",
+  "keywords": [
+    "audofile",
+    "audo-file-z",
+    "file-deduplication",
+    "duplicate-cleaner",
+    "tauri",
+    "rust",
+    "cross-platform"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",

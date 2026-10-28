@@ -141,3 +141,23 @@
 .xp-btn-close:active {
   background: linear-gradient(to bottom, #750303 0%, #9e1408 20%, #c62817 80%, #f58d7c 100%);
 }
+
+/* Data Grid Column Resizer */
+.col-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 20;
+}
+.col-resizer:hover,
+.col-resizer.resizing {
+  background-color: rgba(36, 93, 215, 0.4);
+}
+.theme-vinyl .col-resizer:hover,
+.theme-vinyl .col-resizer.resizing {
+  background-color: rgba(255, 102, 0, 0.5);
+}

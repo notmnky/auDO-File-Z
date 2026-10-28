@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import versionInfo from "../version.json";
@@ -31,6 +32,30 @@ interface DuplicateGroup {
   size: number;
   files: DuplicateFile[];
 }
+
+interface ColumnWidths {
+  select: number;
+  filename: number;
+  path: number;
+  date: number;
+  size: number;
+}
+
+const DEFAULT_COL_WIDTHS: ColumnWidths = {
+  select: 55,
+  filename: 260,
+  path: 360,
+  date: 160,
+  size: 110,
+};
+
+const MIN_COL_WIDTHS: ColumnWidths = {
+  select: 45,
+  filename: 120,
+  path: 140,
+  date: 110,
+  size: 80,
+};
 
 const getFolderPath = (fullPath: string): string => {
   const lastSlash = fullPath.lastIndexOf("/");
@@ -111,6 +136,119 @@ function App() {
 
   // References for closing menus on clicking outside
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Column Widths State & Persistence
+  const [colWidths, setColWidths] = useState<ColumnWidths>(() => {
+    try {
+      const saved = localStorage.getItem("audofile_col_widths");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          select: Math.max(MIN_COL_WIDTHS.select, parsed.select || DEFAULT_COL_WIDTHS.select),
+          filename: Math.max(MIN_COL_WIDTHS.filename, parsed.filename || DEFAULT_COL_WIDTHS.filename),
+          path: Math.max(MIN_COL_WIDTHS.path, parsed.path || DEFAULT_COL_WIDTHS.path),
+          date: Math.max(MIN_COL_WIDTHS.date, parsed.date || DEFAULT_COL_WIDTHS.date),
+          size: Math.max(MIN_COL_WIDTHS.size, parsed.size || DEFAULT_COL_WIDTHS.size),
+        };
+      }
+    } catch (_) {}
+    return DEFAULT_COL_WIDTHS;
+  });
+
+  const resizingCol = useRef<{
+    col: keyof ColumnWidths;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+
+  const startResizing = (col: keyof ColumnWidths, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingCol.current = {
+      col,
+      startX: e.clientX,
+      startWidth: colWidths[col],
+    };
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingCol.current) return;
+      const { col, startX, startWidth } = resizingCol.current;
+      const delta = e.clientX - startX;
+      const newWidth = Math.max(MIN_COL_WIDTHS[col], startWidth + delta);
+
+      setColWidths((prev) => {
+        const next = { ...prev, [col]: newWidth };
+        try {
+          localStorage.setItem("audofile_col_widths", JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+    };
+
+    const handleMouseUp = () => {
+      if (resizingCol.current) {
+        resizingCol.current = null;
+        setIsResizing(false);
+      }
+    };
+
+    if (isResizing) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
+    };
+  }, [isResizing]);
+
+  const resetColWidth = (col: keyof ColumnWidths) => {
+    setColWidths((prev) => {
+      const next = { ...prev, [col]: DEFAULT_COL_WIDTHS[col] };
+      try {
+        localStorage.setItem("audofile_col_widths", JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  };
+
+  // Window Action Handlers (macOS and Windows)
+  const handleMinimize = async () => {
+    try {
+      const appWindow = getCurrentWindow();
+      await appWindow.minimize();
+    } catch (_) {
+      await invoke("window_minimize").catch(console.error);
+    }
+  };
+
+  const handleToggleMaximize = async () => {
+    try {
+      const appWindow = getCurrentWindow();
+      await appWindow.toggleMaximize();
+    } catch (_) {
+      await invoke("window_toggle_maximize").catch(console.error);
+    }
+  };
+
+  const handleClose = async () => {
+    try {
+      const appWindow = getCurrentWindow();
+      await appWindow.close();
+    } catch (_) {
+      await invoke("window_close").catch(console.error);
+    }
+  };
 
   // Audio configuration & helpers
   const AUDIO_EXTENSIONS = [".mp3", ".wav", ".flac", ".aif", ".aiff", ".aac", ".m4a", ".ogg"];
@@ -814,27 +952,38 @@ function App() {
     <div className={`flex flex-col h-screen select-none overflow-hidden theme-${theme} ${containerClass}`}>
       
       {/* Title Bar */}
-      <div className={`flex items-center justify-between h-[30px] font-bold text-sm select-none z-10 ${titleBarClass}`}>
-        <div className="flex items-center gap-1.5 px-2">
+      <div 
+        data-tauri-drag-region
+        className={`flex items-center justify-between h-[30px] font-bold text-sm select-none z-10 cursor-default ${titleBarClass}`}
+      >
+        <div className="flex items-center gap-1.5 px-2 pointer-events-none select-none">
           <img src="/afz-logo-sq.png" className="w-[16px] h-[16px] object-contain" alt="auDO File Z Logo" />
           <span className={`${isDoors ? "drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" : ""}`}>auDO File Z by notMNKY</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 pr-1" onClick={(e) => e.stopPropagation()}>
           {/* Minimize */}
-          <button className={`flex items-center justify-center w-[21px] h-[21px] pb-2.5 text-xs rounded-[2px] ${isDoors ? "xp-btn-grey text-black font-extrabold" : "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white border border-[#444444]"}`} title="Minimize">
+          <button 
+            onClick={handleMinimize}
+            className={`flex items-center justify-center w-[21px] h-[21px] pb-2.5 text-xs rounded-[2px] transition-opacity hover:opacity-90 active:opacity-75 ${isDoors ? "xp-btn-grey text-black font-extrabold" : "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white border border-[#444444]"}`} 
+            title="Minimize"
+          >
             _
           </button>
-          {/* Maximize */}
-          <button className={`flex items-center justify-center w-[21px] h-[21px] pb-0.5 text-[10px] rounded-[2px] ${isDoors ? "xp-btn-grey text-black font-bold" : "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white border border-[#444444]"}`} title="Maximize">
+          {/* Maximize / Restore */}
+          <button 
+            onClick={handleToggleMaximize}
+            className={`flex items-center justify-center w-[21px] h-[21px] pb-0.5 text-[10px] rounded-[2px] transition-opacity hover:opacity-90 active:opacity-75 ${isDoors ? "xp-btn-grey text-black font-bold" : "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white border border-[#444444]"}`} 
+            title="Maximize / Restore"
+          >
             🗖
           </button>
           {/* Close */}
           <button 
-            onClick={() => window.close()} 
-            className={`flex items-center justify-center w-[21px] h-[21px] pb-0.5 text-xs rounded-[2px] ${isDoors ? "xp-btn-close text-white font-bold" : "bg-[#2a2a2a] hover:bg-red-600 text-white border border-[#444444] rounded-none"}`} 
+            onClick={handleClose} 
+            className={`flex items-center justify-center w-[21px] h-[21px] pb-0.5 text-xs rounded-[2px] transition-opacity hover:opacity-90 active:opacity-75 ${isDoors ? "xp-btn-close text-white font-bold" : "bg-[#2a2a2a] hover:bg-red-600 text-white border border-[#444444] rounded-none"}`} 
             title="Close"
           >
-            X
+            ✕
           </button>
         </div>
       </div>
@@ -1173,27 +1322,59 @@ function App() {
                 </button>
               </div>
 
-              {/* Grid Headers */}
-              <div className={`grid grid-cols-12 text-left font-bold text-xs select-none ${dataGridHeaderClass}`}>
-                <div className={`col-span-1 p-2 border-r flex items-center justify-center ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
-                  Select
+              {/* Grid Scroll Area with Horizontal & Vertical Overflow */}
+              <div className="flex-1 overflow-auto relative">
+                
+                {/* Sticky Grid Headers */}
+                <div 
+                  className={`text-left font-bold text-xs select-none sticky top-0 z-20 ${dataGridHeaderClass}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px minmax(${colWidths.size}px, 1fr)`,
+                    minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px`,
+                  }}
+                >
+                  <div className={`p-2 border-r relative flex items-center justify-center ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
+                    <span>Select</span>
+                    <div 
+                      onMouseDown={(e) => startResizing("select", e)}
+                      onDoubleClick={() => resetColWidth("select")}
+                      className="col-resizer"
+                      title="Drag to resize column (Double-click to reset)"
+                    />
+                  </div>
+                  <div className={`p-2 border-r relative flex items-center justify-between ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
+                    <span className="truncate">Filename</span>
+                    <div 
+                      onMouseDown={(e) => startResizing("filename", e)}
+                      onDoubleClick={() => resetColWidth("filename")}
+                      className="col-resizer"
+                      title="Drag to resize column (Double-click to reset)"
+                    />
+                  </div>
+                  <div className={`p-2 border-r relative flex items-center justify-between ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
+                    <span className="truncate">Original Folder Path</span>
+                    <div 
+                      onMouseDown={(e) => startResizing("path", e)}
+                      onDoubleClick={() => resetColWidth("path")}
+                      className="col-resizer"
+                      title="Drag to resize column (Double-click to reset)"
+                    />
+                  </div>
+                  <div className={`p-2 border-r relative flex items-center justify-between ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
+                    <span className="truncate">Date Created</span>
+                    <div 
+                      onMouseDown={(e) => startResizing("date", e)}
+                      onDoubleClick={() => resetColWidth("date")}
+                      className="col-resizer"
+                      title="Drag to resize column (Double-click to reset)"
+                    />
+                  </div>
+                  <div className="p-2 flex items-center justify-end pr-4 relative">
+                    <span>Size</span>
+                  </div>
                 </div>
-                <div className={`col-span-3 p-2 border-r flex items-center gap-1 ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
-                  Filename
-                </div>
-                <div className={`col-span-3 p-2 border-r flex items-center gap-1 ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
-                  Original Folder Path
-                </div>
-                <div className={`col-span-3 p-2 border-r flex items-center gap-1 ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
-                  Date Created
-                </div>
-                <div className="col-span-2 p-2 flex items-center justify-end pr-4">
-                  Size
-                </div>
-              </div>
 
-              {/* Grid Scroll Area */}
-              <div className="flex-1 overflow-y-auto">
                 {scanResults.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2 p-4 text-center">
                     <Search size={32} className="text-gray-300" />
@@ -1211,7 +1392,10 @@ function App() {
                         <div key={group.hash} className={`border-b-2 ${isDoors ? "border-xp-greyBorder bg-white" : "border-[#2c2c2c] bg-[#121212]"}`}>
                           
                           {/* Group Header */}
-                          <div className={`px-2 py-1 flex items-center justify-between border-b text-[10px] font-semibold ${isDoors ? "bg-xp-greyLight border-xp-greyBorder text-xp-blueDark" : "bg-[#181818] border-[#252525] text-[#FF6600]"}`}>
+                          <div 
+                            style={{ minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px` }}
+                            className={`px-2 py-1 flex items-center justify-between border-b text-[10px] font-semibold sticky left-0 ${isDoors ? "bg-xp-greyLight border-xp-greyBorder text-xp-blueDark" : "bg-[#181818] border-[#252525] text-[#FF6600]"}`}
+                          >
                             <div className="flex items-center gap-1.5">
                               <span className={`px-1.5 py-0.5 rounded-[2px] font-mono text-[9px] ${isDoors ? "bg-xp-blue text-white" : "bg-[#FF6600] text-black font-bold"}`}>
                                 GROUP {groupIndex + 1}
@@ -1249,10 +1433,15 @@ function App() {
                                     filePath: file.path
                                   });
                                 }}
-                                className={`grid grid-cols-12 text-xs py-1.5 items-center cursor-pointer group ${dataGridRowClass(isKeep)}`}
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px minmax(${colWidths.size}px, 1fr)`,
+                                  minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px`,
+                                }}
+                                className={`text-xs py-1.5 items-center cursor-pointer group ${dataGridRowClass(isKeep)}`}
                               >
                                 {/* Checkbox Selector */}
-                                <div className="col-span-1 flex justify-center items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex justify-center items-center gap-1 overflow-hidden" onClick={(e) => e.stopPropagation()}>
                                   <input 
                                     type="checkbox"
                                     checked={isChecked}
@@ -1270,13 +1459,13 @@ function App() {
                                 </div>
                                 
                                 {/* Filename */}
-                                <div className="col-span-3 px-2 truncate font-semibold flex items-center gap-1">
+                                <div className="px-2 truncate font-semibold flex items-center gap-1 overflow-hidden" title={file.filename}>
                                   {isKeep && (
-                                    <span className={`text-[9px] font-bold border px-1 rounded-[1.5px] uppercase ${isDoors ? "text-green-700 bg-green-100 border-green-300" : "text-black bg-[#FF6600] border-[#FF6600]"}`}>
+                                    <span className={`text-[9px] font-bold border px-1 rounded-[1.5px] uppercase flex-shrink-0 ${isDoors ? "text-green-700 bg-green-100 border-green-300" : "text-black bg-[#FF6600] border-[#FF6600]"}`}>
                                       Keep
                                     </span>
                                   )}
-                                  <span className={isKeep && !isDoors ? "text-white" : ""}>{file.filename}</span>
+                                  <span className={`truncate ${isKeep && !isDoors ? "text-white" : ""}`}>{file.filename}</span>
                                   
                                   {isAudioFile(file.filename) && (
                                     <button
@@ -1284,7 +1473,7 @@ function App() {
                                         e.stopPropagation();
                                         playPreview(file.path);
                                       }}
-                                      className={`ml-1.5 p-0.5 w-[16px] h-[16px] flex items-center justify-center rounded-[2px] transition-opacity select-none border text-[9px] leading-none ${
+                                      className={`ml-1.5 p-0.5 w-[16px] h-[16px] flex items-center justify-center rounded-[2px] transition-opacity select-none border text-[9px] leading-none flex-shrink-0 ${
                                         playingPath === file.path
                                           ? (isDoors ? "bg-xp-blue text-white border-xp-blue" : "bg-[#FF6600] text-black border-[#FF6600]")
                                           : (isDoors ? "bg-white text-gray-700 border-gray-300 hover:bg-gray-100" : "bg-[#222] text-gray-300 border-[#444] hover:bg-[#333]")
@@ -1297,17 +1486,17 @@ function App() {
                                 </div>
 
                                 {/* Original Folder Path */}
-                                <div className="col-span-3 px-2 truncate font-mono text-[10px]" title={getFolderPath(file.path)}>
+                                <div className="px-2 truncate font-mono text-[10px] overflow-hidden" title={getFolderPath(file.path)}>
                                   {getFolderPath(file.path)}
                                 </div>
 
                                 {/* Date Created Column */}
-                                <div className="col-span-3 px-2 truncate font-mono text-[10px]">
+                                <div className="px-2 truncate font-mono text-[10px] overflow-hidden" title={formatDate(file.created)}>
                                   {formatDate(file.created)}
                                 </div>
 
                                 {/* Size */}
-                                <div className="col-span-2 px-2 text-right pr-4 font-semibold">
+                                <div className="px-2 text-right pr-4 font-semibold truncate overflow-hidden">
                                   {formatBytes(file.size)}
                                 </div>
                               </div>

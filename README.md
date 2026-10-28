@@ -1,17 +1,25 @@
 # auDO File Z
-> **Nostalgic Cryptographic File Deduplication for macOS and Windows**  
+> **High-Performance Cryptographic File Deduplication for macOS and Windows**  
 > *Platform-Aware Approved Self-Update System*
+
+[![Software Name: auDO File Z](https://img.shields.io/badge/Software-auDO%20File%20Z-blue.svg)](https://github.com/notmnky/auDO-File-Z)
+[![Release](https://img.shields.io/github/v/release/notmnky/auDO-File-Z)](https://github.com/notmnky/auDO-File-Z/releases)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/notmnky/auDO-File-Z)
 
 ---
 
 ## 1. Overview & Context
 
-**auDO File Z** (Version 9000) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually. 
+**auDO File Z** (informally `auDOfile` or `AFZ`, Version 9000) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually.
+
+> [!IMPORTANT]
+> **Product Identity & Naming**: The official name of this software is **auDO File Z** (also referred to online as **auDOfile**). 
+> **DoorsXP-Z** (Retro Windows XP style) and **VinylBox-Z** (Dark DJ style) are purely selectable visual themes (skins) embedded within **auDO File Z**, rather than separate tools or the application name itself.
 
 > [!NOTE]
-> **Versioning Note**: Due to the addition of the Microsoft Windows installer packaging constraints (which limit version fields to a maximum value of 255), the formal release versioning has been adapted to **v0.1.9004**. The application is informally referred to as Version 9000 in the user interface.
+> **Versioning Note**: Due to the addition of Microsoft Windows installer packaging constraints (which limit version fields to a maximum value of 255), the formal release versioning has been adapted to **v0.1.9004**. The application is informally referred to as Version 9000 in the user interface.
 
-The application is styled with a rigid, nostalgic **DoorsXP-Z** (retro Windows XP Theme) or **VinylBox-Z (Dark DJ Mode)** aesthetic, bringing back early-2000s desktop nostalgia while executing lightning-fast, modern backend file systems operations on Apple Silicon (macOS arm64), Intel Mac (macOS x86_64), and Windows (x64).
+The application brings back early-2000s desktop nostalgia through optional themes while executing lightning-fast, modern backend file systems operations on Apple Silicon (macOS arm64), Intel Mac (macOS x86_64), and Windows (x64).
 
 ### Key Architectural Pillars:
 *   **Platform-Aware Self-Updates**: Built-in system checking GitHub Releases API, parsing architecture compatibility (Intel macOS vs Apple Silicon macOS vs Windows x64), and downloading correct assets with explicit user consent.
@@ -128,13 +136,13 @@ Before resolving duplicates, toggle the action type at the bottom:
 
 ---
 
-## 6. Dynamic Skin Swapping
+## 6. Dynamic Skin Swapping (Themes within auDO File Z)
 
-Customize the application's visual layout dynamically to match your preference:
-*   **DoorsXP-Z (Retro)**: The default nostalgic Windows XP theme featuring a bright blue title bar, retro grey bevels, and classic `#ECE9D8` dialog boxes.
+**auDO File Z** includes customizable visual themes that can be switched on the fly without restarting:
+*   **DoorsXP-Z (Retro)**: The nostalgic Windows XP theme featuring a bright blue title bar, retro grey bevels, and classic `#ECE9D8` dialog styling.
 *   **VinylBox-Z (Dark)**: A dark, sleek, professional theme mimicking the Rekordbox / AlphaTheta DJ aesthetic, featuring matte black backgrounds (`#121212`), high-contrast neon orange accents (`#FF6600`), flat edges, and customized dark scrollbars.
 
-You can toggle skins instantly by selecting them from the native macOS application menu under **View > Skins** or the custom in-window dropdown menu.
+You can toggle skins instantly by selecting them from the native macOS application menu under **View > Skins** or the custom in-window dropdown menu. Notice: both themes are built directly into **auDO File Z**.
 
 ---
 
