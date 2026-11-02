@@ -599,13 +599,17 @@ function App() {
 
     try {
       // IPC call to Rust
-      const results = await invoke<DuplicateGroup[]>("start_scan", {
+      const { cancelled, groups: results } = await invoke<{ cancelled: boolean; groups: DuplicateGroup[] }>("start_scan", {
         path: selectedDirectory,
         extensions: extensions
       });
-      
-      if (results.length === 0) {
+
+      if (cancelled) {
         setStatusMessage("Scan cancelled by user.");
+        return;
+      }
+      if (results.length === 0) {
+        setStatusMessage("Scan complete. No duplicate files found.");
         return;
       }
 

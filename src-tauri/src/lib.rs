@@ -26,6 +26,23 @@ pub struct DuplicateGroup {
     pub files: Vec<DuplicateFile>,
 }
 
+/// Result of a scan. `cancelled` is true only when the user pressed Stop;
+/// a finished scan with no duplicates has `cancelled: false` and no groups.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ScanOutcome {
+    pub cancelled: bool,
+    pub groups: Vec<DuplicateGroup>,
+}
+
+impl ScanOutcome {
+    fn cancelled() -> Self {
+        ScanOutcome { cancelled: true, groups: Vec::new() }
+    }
+    fn finished(groups: Vec<DuplicateGroup>) -> Self {
+        ScanOutcome { cancelled: false, groups }
+    }
+}
+
 #[derive(Deserialize, Debug, Default)]
 pub struct ResolutionItem {
     pub target: String,
@@ -350,7 +367,7 @@ fn run_scan_internal<F>(
     extensions: &str,
     is_cancelled: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     progress_fn: Option<F>,
-) -> Result<Vec<DuplicateGroup>, String>
+) -> Result<ScanOutcome, String>
 where
     F: Fn(usize) + Send + Sync,
 {
@@ -373,7 +390,7 @@ where
 
     if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
         write_to_log_file("Scan cancelled by user before pre-filtering.");
-        return Ok(Vec::new());
+        return Ok(ScanOutcome::cancelled());
     }
 
     // Step 1: Pre-filter by size (group files by size)
@@ -404,7 +421,7 @@ where
 
     if candidate_files_count == 0 {
         write_to_log_file("Scan complete: No candidate files sharing sizes found.");
-        return Ok(Vec::new());
+        return Ok(ScanOutcome::finished(Vec::new()));
     }
 
     // Step 2: Compute SHA-256 hashes
@@ -414,7 +431,7 @@ where
     for (size, paths) in candidate_groups {
         if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
             write_to_log_file("Scan cancelled by user during hashing.");
-            return Ok(Vec::new());
+            return Ok(ScanOutcome::cancelled());
         }
 
         let group_hashes: Vec<(String, u64, PathBuf, u64, u64, bool)> = paths
@@ -451,7 +468,7 @@ where
 
     if is_cancelled.load(std::sync::atomic::Ordering::Relaxed) {
         write_to_log_file("Scan cancelled by user after hashing completed.");
-        return Ok(Vec::new());
+        return Ok(ScanOutcome::cancelled());
     }
 
     // Step 3: Group hashed files by their cryptographic hash
@@ -492,7 +509,7 @@ where
     result.sort_by(|a, b| b.size.cmp(&a.size));
     write_to_log_file(&format!("Found {} duplicate clusters after cryptographic hashing.", result.len()));
     println!("DEBUG: Found {} duplicate clusters after cryptographic hashing.", result.len());
-    Ok(result)
+    Ok(ScanOutcome::finished(result))
 }
 
 #[tauri::command]
@@ -501,25 +518,25 @@ async fn start_scan(
     state: tauri::State<'_, ScanState>,
     path: String,
     extensions: String,
-) -> Result<Vec<DuplicateGroup>, String> {
+) -> Result<ScanOutcome, String> {
     state.is_cancelled.store(false, std::sync::atomic::Ordering::Relaxed);
     let emitter = app.clone();
     let progress_fn = move |pct| {
         let _ = emitter.emit("scan-progress", pct);
     };
-    let groups = run_scan_internal(&path, &extensions, &state.is_cancelled, Some(progress_fn))?;
+    let outcome = run_scan_internal(&path, &extensions, &state.is_cancelled, Some(progress_fn))?;
 
     // The asset protocol (used for audio preview) starts with an empty scope.
     // Only files shown in the results become readable by the webview.
     // Tauri cannot revoke these grants, so they last until the app restarts.
     use tauri::Manager;
     let scope = app.asset_protocol_scope();
-    for file in groups.iter().flat_map(|g| &g.files) {
+    for file in outcome.groups.iter().flat_map(|g| &g.files) {
         if let Err(e) = scope.allow_file(&file.path) {
             write_to_log_file(&format!("Could not allow audio preview for '{}': {}", file.path, e));
         }
     }
-    Ok(groups)
+    Ok(outcome)
 }
 
 /// Moves one file to the system Trash / Recycle Bin through the `trash` crate.
@@ -1133,7 +1150,7 @@ mod tests {
             "txt",
             &cancel_flag,
             None::<fn(usize)>,
-        ).unwrap();
+        ).unwrap().groups;
         assert_eq!(duplicates.len(), 1); 
         assert_eq!(duplicates[0].files.len(), 2);
         assert!(duplicates[0].files.iter().any(|f| f.path == file_1.to_string_lossy().into_owned()));
@@ -1431,12 +1448,12 @@ mod tests {
         // Only one name of the hard-linked file is crawled...
         assert_eq!(crawl(&scan, &[]).len(), 1);
         let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let groups = run_scan_internal(&scan.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
+        let groups = run_scan_internal(&scan.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap().groups;
         assert!(groups.is_empty(), "a hard link is not a duplicate: {groups:?}");
 
         // ...but a real copy next to it is still found.
         write_file(&scan.join("copy.txt"), b"hard linked content");
-        let groups = run_scan_internal(&scan.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
+        let groups = run_scan_internal(&scan.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap().groups;
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].files.len(), 2);
         let _ = fs::remove_dir_all(&sandbox);
@@ -1463,6 +1480,35 @@ mod tests {
 
         assert!(is_package_dir(Path::new("/x/Serum.VST3")));
         assert!(!is_package_dir(Path::new("/x/Samples")));
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn scan_without_duplicates_is_not_cancelled() {
+        let sandbox = temp_sandbox("nodupes");
+        write_file(&sandbox.join("a.txt"), b"one");
+        write_file(&sandbox.join("b.txt"), b"two"); // same size, different content
+        write_file(&sandbox.join("c.txt"), b"three!"); // unique size
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let outcome = run_scan_internal(&sandbox.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
+        assert_eq!(outcome, ScanOutcome { cancelled: false, groups: vec![] });
+
+        // Empty folder: also finished, not cancelled.
+        let empty = sandbox.join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        let outcome = run_scan_internal(&empty.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
+        assert!(!outcome.cancelled);
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn stopped_scan_reports_cancelled() {
+        let sandbox = temp_sandbox("cancelled");
+        write_file(&sandbox.join("a.txt"), b"same");
+        write_file(&sandbox.join("b.txt"), b"same");
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)); // Stop already pressed
+        let outcome = run_scan_internal(&sandbox.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
+        assert_eq!(outcome, ScanOutcome { cancelled: true, groups: vec![] });
         let _ = fs::remove_dir_all(&sandbox);
     }
 }
