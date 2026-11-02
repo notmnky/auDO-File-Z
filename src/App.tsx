@@ -599,13 +599,17 @@ function App() {
 
     try {
       // IPC call to Rust
-      const results = await invoke<DuplicateGroup[]>("start_scan", {
+      const { cancelled, groups: results } = await invoke<{ cancelled: boolean; groups: DuplicateGroup[] }>("start_scan", {
         path: selectedDirectory,
         extensions: extensions
       });
-      
-      if (results.length === 0) {
+
+      if (cancelled) {
         setStatusMessage("Scan cancelled by user.");
+        return;
+      }
+      if (results.length === 0) {
+        setStatusMessage("Scan complete. No duplicate files found.");
         return;
       }
 
@@ -1128,7 +1132,12 @@ function App() {
 
               <div className="flex justify-center gap-3">
                 <button 
-                  onClick={() => invoke("open_folder_picker").catch(console.error)} 
+                  onClick={() =>
+                    invoke("open_full_disk_access_settings").catch((err) => {
+                      console.error(err);
+                      setStatusMessage(`Could not open System Settings: ${err}. Open it manually: Privacy & Security > Full Disk Access.`);
+                    })
+                  }
                   className={`px-4 py-1.5 text-xs min-w-[150px] ${buttonClassicClass}`}
                 >
                   Open System Settings
@@ -1543,9 +1552,6 @@ function App() {
         <div className={`flex-1 px-2 py-0.5 truncate border-r flex items-center gap-1 ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
           <AlertCircle size={10} className={isDoors ? "text-xp-blueDark" : "text-[#FF6600]"} />
           <span>Status: <strong>{statusMessage}</strong></span>
-        </div>
-        <div className={`w-[120px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
-          Offline Mode: Yes
         </div>
         <div className={`w-[450px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
           {isScanning && !isResolving ? (
