@@ -21,6 +21,7 @@ The application brings back early-2000s desktop nostalgia through optional theme
 *   **Platform-Aware Self-Updates**: Built-in system checking GitHub Releases API, parsing architecture compatibility (Intel macOS vs Apple Silicon macOS vs Windows x64), and downloading correct assets with explicit user consent.
 *   **Multi-Platform Compilation**: Supports macOS ARM64, macOS Intel, and Windows x64 targets from a single unified codebase.
 *   **Size-First Optimized Indexing**: Files are indexed by exact byte size first. Hashing is only performed on files that share a size with at least one other file; files with a unique size are never read.
+*   **What is never scanned**: hidden files and folders, symlinks, extra names of a hard-linked file (macOS/Linux), and the contents of package folders such as `.app`, `.vst3`, `.photoslibrary`, `.musiclibrary` and `.logicx`. Removing a "duplicate" inside one of those breaks the app, plug-in, library or project.
 *   **Rayon Parallel Processing**: Utilizes multi-threaded SHA-256 cryptographic hashing to run scans across all CPU cores.
 *   **Buffer-Streamed Hashing**: Reads file contents in constant 8KB chunks, preventing memory/RAM spikes on multi-gigabyte files.
 *   **Trash & Recycle Bin Compliance**: Moves duplicates to the system Trash (macOS) or Recycle Bin (Windows) through the `trash` crate instead of deleting them permanently. On macOS, files on an external drive go to that drive's Trash. Finder's "Put Back" may not be offered for them; drag them out of the Trash to restore.

@@ -199,6 +199,27 @@ fn hard_link_identity(_meta: &std::fs::Metadata) -> Option<(u64, u64)> {
 
 type CrawledFile = (PathBuf, u64, u64, u64, bool);
 
+/// Folder extensions that macOS treats as a single item (packages and bundles).
+/// Their contents are never scanned: removing a "duplicate" inside an app,
+/// plug-in, library or project breaks it.
+const PACKAGE_EXTENSIONS: &[&str] = &[
+    // Apps, frameworks and plug-ins
+    "app", "bundle", "framework", "plugin", "kext", "appex", "xpc", "prefpane", "qlgenerator", "mdimporter",
+    // Audio plug-ins
+    "component", "vst", "vst3", "aaxplugin",
+    // Media libraries
+    "photoslibrary", "musiclibrary", "tvlibrary", "imovielibrary", "fcpbundle", "aplibrary", "migratedphotolibrary",
+    // Documents and projects stored as packages
+    "logicx", "band", "rtfd", "pages", "numbers", "key", "xcodeproj", "xcworkspace", "playground", "sparsebundle",
+];
+
+fn is_package_dir(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| PACKAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
 /// Crawls `dir` and returns every regular file matching `extensions`.
 fn crawl(dir: &Path, extensions: &[String]) -> Vec<CrawledFile> {
     let mut files = Vec::new();
@@ -246,6 +267,10 @@ fn crawl_directory(
         }
 
         if file_type.is_dir() {
+            if is_package_dir(&path) {
+                write_to_log_file(&format!("Skipping package '{}': its contents are never scanned.", path.display()));
+                continue;
+            }
             crawl_directory(&path, extensions, files, seen_links);
         } else if file_type.is_file() {
             let (size, modified, created, read_only, link_id) = match entry.metadata() {
@@ -1399,6 +1424,30 @@ mod tests {
         let groups = run_scan_internal(&scan.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].files.len(), 2);
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn package_folders_are_not_scanned() {
+        let sandbox = temp_sandbox("packages");
+        let scan = sandbox.join("scan");
+        let app_res = scan.join("Some.App").join("Contents").join("Resources"); // case-insensitive
+        let lib = scan.join("Photos Library.photoslibrary").join("originals");
+        let plain = scan.join("music.app-notes"); // not a package: extension is "app-notes"
+        for d in [&app_res, &lib, &plain] {
+            fs::create_dir_all(d).unwrap();
+        }
+        write_file(&app_res.join("icon.png"), b"same bytes");
+        write_file(&lib.join("IMG_1.png"), b"same bytes");
+        write_file(&plain.join("a.png"), b"same bytes");
+        write_file(&scan.join("b.png"), b"same bytes");
+
+        let crawled: Vec<String> = crawl(&scan, &[]).iter().map(|f| f.0.to_string_lossy().into_owned()).collect();
+        assert_eq!(crawled.len(), 2, "{crawled:?}");
+        assert!(crawled.iter().all(|p| !p.contains(".App") && !p.contains(".photoslibrary")));
+
+        assert!(is_package_dir(Path::new("/x/Serum.VST3")));
+        assert!(!is_package_dir(Path::new("/x/Samples")));
         let _ = fs::remove_dir_all(&sandbox);
     }
 }
