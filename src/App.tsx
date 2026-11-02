@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import versionInfo from "../version.json";
 import { computeSelections, type SelectionMode } from "./selection";
+import { isUpdateAvailable, matchReleaseAsset } from "./updates";
 import { 
   Settings, 
   ShieldAlert, 
@@ -321,47 +322,7 @@ function App() {
     runFdaCheck();
   }, []);
 
-  // Semantic Version Comparison
-  const isUpdateAvailable = (current: string, latest: string): boolean => {
-    const cleanCurrent = current.replace(/^v/, "");
-    const cleanLatest = latest.replace(/^v/, "");
-
-    const currentParts = cleanCurrent.split(".").map(Number);
-    const latestParts = cleanLatest.split(".").map(Number);
-
-    for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
-      const curr = currentParts[i] || 0;
-      const lat = latestParts[i] || 0;
-      if (lat > curr) return true;
-      if (curr > lat) return false;
-    }
-    return false;
-  };
-
-  // Find the appropriate release asset for current platform/architecture
-  const matchReleaseAsset = (assets: any[], os: string, arch: string) => {
-    return assets.find(asset => {
-      const name = asset.name.toLowerCase();
-      const cleanOs = os.toLowerCase();
-      const cleanArch = arch.toLowerCase();
-
-      if (cleanOs === "macos") {
-        if (!name.endsWith(".dmg")) return false;
-        if (cleanArch === "arm64" || cleanArch === "aarch64") {
-          return name.includes("macos-arm64");
-        } else if (cleanArch === "x64" || cleanArch === "x86_64" || cleanArch === "intel") {
-          return name.includes("macos-intel");
-        }
-      } else if (cleanOs === "windows" || cleanOs === "win") {
-        if (!name.endsWith(".exe")) return false;
-        if (cleanArch === "x64" || cleanArch === "x86_64") {
-          return name.includes("windows-x64");
-        }
-      }
-      return false;
-    });
-  };
-
+  // Version comparison and asset matching live in ./updates.ts (unit tested).
 
   // Run update check
   const runUpdateCheck = async (isManual: boolean = false) => {

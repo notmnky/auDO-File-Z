@@ -830,8 +830,10 @@ const BUILD_ARCH: &str = if cfg!(target_arch = "aarch64") {
     "arm64"
 } else if cfg!(target_arch = "x86_64") {
     "x64"
+} else if cfg!(target_arch = "x86") {
+    "x86" // 32-bit: no release asset matches, so the updater offers nothing
 } else {
-    "x64"
+    "unknown"
 };
 
 const BUILD_OS: &str = if cfg!(target_os = "macos") {
