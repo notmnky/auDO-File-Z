@@ -183,11 +183,37 @@ fn parse_extensions(ext_str: &str) -> Vec<String> {
         .collect()
 }
 
-// Recursive directory crawler (skips hidden files/directories and symlinks)
+/// `(device, inode)` for a file that has more than one hard link, else `None`.
+/// Two paths with the same identity are one file on disk: trashing one frees
+/// no space, so only the first path found is kept. Unix only; on Windows
+/// hard links are rare and std exposes no stable file index.
+#[cfg(unix)]
+fn hard_link_identity(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    (meta.nlink() > 1).then(|| (meta.dev(), meta.ino()))
+}
+#[cfg(not(unix))]
+fn hard_link_identity(_meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
+}
+
+type CrawledFile = (PathBuf, u64, u64, u64, bool);
+
+/// Crawls `dir` and returns every regular file matching `extensions`.
+fn crawl(dir: &Path, extensions: &[String]) -> Vec<CrawledFile> {
+    let mut files = Vec::new();
+    let mut seen_links = std::collections::HashSet::new();
+    crawl_directory(dir, extensions, &mut files, &mut seen_links);
+    files
+}
+
+// Recursive directory crawler (skips hidden files/directories, symlinks,
+// and extra names of an already-seen hard-linked file)
 fn crawl_directory(
     dir: &Path,
     extensions: &[String],
-    files: &mut Vec<(PathBuf, u64, u64, u64, bool)>,
+    files: &mut Vec<CrawledFile>,
+    seen_links: &mut std::collections::HashSet<(u64, u64)>,
 ) {
     let read_dir = match std::fs::read_dir(dir) {
         Ok(rd) => rd,
@@ -220,9 +246,9 @@ fn crawl_directory(
         }
 
         if file_type.is_dir() {
-            crawl_directory(&path, extensions, files);
+            crawl_directory(&path, extensions, files, seen_links);
         } else if file_type.is_file() {
-            let (size, modified, created, read_only) = match entry.metadata() {
+            let (size, modified, created, read_only, link_id) = match entry.metadata() {
                 Ok(meta) => {
                     let sz = meta.len();
                     let mod_time = meta.modified()
@@ -237,22 +263,32 @@ fn crawl_directory(
                         .map(|d| d.as_millis() as u64)
                         .unwrap_or(0);
                     let ro = meta.permissions().readonly();
-                    (sz, mod_time, cre_time, ro)
+                    (sz, mod_time, cre_time, ro, hard_link_identity(&meta))
                 }
                 Err(_) => continue,
             };
 
             // Filter by extension if constraints are provided
-            if extensions.is_empty() {
-                files.push((path, size, modified, created, read_only));
-            } else {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    let ext_lower = ext.to_lowercase();
-                    if extensions.iter().any(|e| e == &ext_lower) {
-                        files.push((path, size, modified, created, read_only));
-                    }
+            let matches = extensions.is_empty()
+                || path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|ext| extensions.iter().any(|e| *e == ext.to_lowercase()))
+                    .unwrap_or(false);
+            if !matches {
+                continue;
+            }
+
+            if let Some(id) = link_id {
+                if !seen_links.insert(id) {
+                    write_to_log_file(&format!(
+                        "Skipping '{}': hard link to a file already scanned (same data on disk, removing it would free no space).",
+                        path.display()
+                    ));
+                    continue;
                 }
             }
+            files.push((path, size, modified, created, read_only));
         }
     }
 }
@@ -305,8 +341,7 @@ where
     println!("DEBUG: Raw extensions input: '{}'", extensions);
     println!("DEBUG: Parsed extensions filter: {:?}", parsed_exts);
 
-    let mut all_files = Vec::new();
-    crawl_directory(target_path, &parsed_exts, &mut all_files);
+    let all_files = crawl(target_path, &parsed_exts);
 
     write_to_log_file(&format!("Crawler found {} total files matching filter.", all_files.len()));
     println!("DEBUG: Crawler found {} total files matching filter.", all_files.len());
@@ -1046,8 +1081,7 @@ mod tests {
         assert_ne!(hash1, hash3);
 
         // Test crawler
-        let mut crawled = Vec::new();
-        crawl_directory(test_dir, &vec!["txt".to_string()], &mut crawled);
+        let crawled = crawl(test_dir, &["txt".to_string()]);
         
         // Assert: 3 files found (hidden file ignored)
         assert_eq!(crawled.len(), 3);
@@ -1342,5 +1376,29 @@ mod tests {
         for n in bad_names {
             assert!(validate_update_request(ok_url, n).is_err(), "{n:?}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hard_links_are_not_reported_as_duplicates() {
+        let sandbox = temp_sandbox("hardlink");
+        let scan = sandbox.join("scan");
+        fs::create_dir_all(scan.join("sub")).unwrap();
+        let a = scan.join("a.txt");
+        write_file(&a, b"hard linked content");
+        fs::hard_link(&a, scan.join("sub").join("a-link.txt")).unwrap();
+
+        // Only one name of the hard-linked file is crawled...
+        assert_eq!(crawl(&scan, &[]).len(), 1);
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let groups = run_scan_internal(&scan.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
+        assert!(groups.is_empty(), "a hard link is not a duplicate: {groups:?}");
+
+        // ...but a real copy next to it is still found.
+        write_file(&scan.join("copy.txt"), b"hard linked content");
+        let groups = run_scan_internal(&scan.to_string_lossy(), "", &flag, None::<fn(usize)>).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].files.len(), 2);
+        let _ = fs::remove_dir_all(&sandbox);
     }
 }
