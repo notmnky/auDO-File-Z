@@ -686,6 +686,31 @@ fn show_in_finder(path: String) -> Result<(), String> {
     }
 }
 
+/// Fixed AppleScript for Finder's Get Info window. The file path is never
+/// part of the script text: it arrives as `item 1 of argv`, so a file name
+/// containing quotes or AppleScript cannot change what the script does.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const GET_INFO_SCRIPT: [&str; 6] = [
+    "on run argv",
+    "tell application \"Finder\"",
+    "open information window of (POSIX file (item 1 of argv) as alias)",
+    "activate",
+    "end tell",
+    "end run",
+];
+
+/// Arguments for `osascript`: one `-e` per script line, then the path as argv.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn get_info_osascript_args(path: &Path) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    for line in GET_INFO_SCRIPT {
+        args.push("-e".into());
+        args.push(line.into());
+    }
+    args.push(path.as_os_str().to_os_string());
+    args
+}
+
 #[tauri::command]
 fn get_info(path: String) -> Result<(), String> {
     write_to_log_file(&format!("Requesting Get Info for path: '{}'", path));
@@ -697,14 +722,8 @@ fn get_info(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        let path_str = path_buf.to_string_lossy();
-        let script = format!(
-            "tell application \"Finder\"\nopen information window of (POSIX file \"{}\" as alias)\nactivate\nend tell",
-            path_str
-        );
         std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
+            .args(get_info_osascript_args(&path_buf))
             .spawn()
             .map_err(|e| {
                 write_to_log_file(&format!("Get Info Error for path '{}': {}", path, e));
@@ -1227,5 +1246,20 @@ mod tests {
         assert!(dup.is_file());
         assert!(leftover_staging_links(&sandbox).is_empty());
         let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn get_info_passes_path_as_argument_not_script() {
+        let evil = Path::new("/tmp/a\" & do shell script \"touch /tmp/pwned\" & \".mp3");
+        let args = get_info_osascript_args(evil);
+        // The path is exactly the last argument, untouched...
+        assert_eq!(args.last().unwrap(), evil.as_os_str());
+        // ...and appears nowhere in the script lines.
+        for a in &args[..args.len() - 1] {
+            assert!(!a.to_string_lossy().contains("pwned"));
+        }
+        // Every script line is preceded by -e.
+        assert_eq!(args.len(), GET_INFO_SCRIPT.len() * 2 + 1);
+        assert!(args.iter().step_by(2).take(GET_INFO_SCRIPT.len()).all(|a| a == "-e"));
     }
 }
