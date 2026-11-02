@@ -184,6 +184,30 @@ async fn check_fda() -> bool {
     }
 }
 
+/// System Settings > Privacy & Security > Full Disk Access (macOS 13+ and earlier).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const FULL_DISK_ACCESS_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+
+/// Opens the Full Disk Access pane. Takes no input: the URL is fixed.
+#[tauri::command]
+fn open_full_disk_access_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(FULL_DISK_ACCESS_URL)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| {
+                write_to_log_file(&format!("Could not open Full Disk Access settings: {}", e));
+                e.to_string()
+            })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Full Disk Access settings exist only on macOS.".to_string())
+    }
+}
+
 #[tauri::command]
 fn open_folder_picker() -> Option<String> {
     let res = rfd::FileDialog::new().pick_folder();
@@ -1043,6 +1067,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             check_fda,
+            open_full_disk_access_settings,
             open_folder_picker,
             start_scan,
             resolve_duplicates,

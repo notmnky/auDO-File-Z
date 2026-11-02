@@ -1132,7 +1132,12 @@ function App() {
 
               <div className="flex justify-center gap-3">
                 <button 
-                  onClick={() => invoke("open_folder_picker").catch(console.error)} 
+                  onClick={() =>
+                    invoke("open_full_disk_access_settings").catch((err) => {
+                      console.error(err);
+                      setStatusMessage(`Could not open System Settings: ${err}. Open it manually: Privacy & Security > Full Disk Access.`);
+                    })
+                  }
                   className={`px-4 py-1.5 text-xs min-w-[150px] ${buttonClassicClass}`}
                 >
                   Open System Settings
