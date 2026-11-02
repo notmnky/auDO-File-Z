@@ -33,24 +33,45 @@ The application brings back early-2000s desktop nostalgia through optional theme
 ### Target Build Commands
 You can compile targeted versions of the application locally:
 ```bash
-# Apple Silicon (macOS arm64)
+# Universal macOS (one app for Apple Silicon and Intel; this is what releases ship)
+npm run build:mac-universal
+
+# Apple Silicon only (macOS arm64)
 npm run build:mac-arm
 
-# Intel Mac (macOS x86_64)
+# Intel Mac only (macOS x86_64)
 npm run build:mac-intel
 
 # Windows (x64)
 npm run build:win
 
-# Build all macOS targets
+# Build both single-architecture macOS targets
 npm run build:all
+
+# Check that version.json, package.json, Cargo.toml and tauri.conf.json agree
+npm run check:versions
 ```
 
+### Publishing a release
+1. Set the same version in `version.json`, `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, then run `npm run check:versions`.
+2. Tag the commit as `v` plus that version, e.g. `v0.1.9005`, and push the tag. GitHub Actions builds the universal macOS and Windows installers and publishes the release.
+
+The workflow refuses a tag that does not match the version files. The in-app updater compares `version.json` with the latest tag, so a tag like `v9000.5` would make every install show an update that never goes away.
+
+### Supported systems
+| System | Supported | Download |
+|---|---|---|
+| macOS on Apple Silicon (M1 and later) | Yes | Universal `.dmg` |
+| macOS on Intel | Yes | Universal `.dmg` |
+| Windows 10/11, 64-bit | Yes | `x64-setup.exe` or `x64_en-US.msi` |
+| Windows 11 on ARM | Not tested (runs the 64-bit build through Windows emulation) | `x64-setup.exe` |
+| Windows, 32-bit | No | — |
+
 ### macOS Installation
-1. Download the latest **`audofilez.app.tar.gz`** or **`auDO FileZ_0.1.9004_aarch64.dmg`** from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
+1. Download the latest **`auDO.FileZ_<version>_universal.dmg`** from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases). The same file works on Apple Silicon and Intel Macs.
 2. Alternatively, install it directly to `/Applications` via your Terminal:
    ```bash
-   curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
+   curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/auDO.FileZ_universal.app.tar.gz | tar -xz -C /Applications
    ```
 
 > [!WARNING]
@@ -63,8 +84,8 @@ npm run build:all
 > ```
 
 ### Windows Installation
-1. Download the latest **`auDO FileZ_0.1.9004_x64_en-US.msi`** installer from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
-2. Double-click the `.msi` file to run the setup wizard.
+1. Download the latest **`auDO.FileZ_<version>_x64-setup.exe`** (or the **`…_x64_en-US.msi`**) installer from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases). The in-app updater uses the `.exe` installer.
+2. Double-click the installer to run the setup wizard.
 3. If Windows Defender SmartScreen blocks the app during launch:
    * Click **More info**.
    * Click **Run anyway**.
