@@ -449,56 +449,24 @@ async fn start_scan(
     run_scan_internal(&path, &extensions, &state.is_cancelled, Some(progress_fn))
 }
 
-fn get_unique_trash_path(trash_dir: &Path, filename: &str) -> PathBuf {
-    let mut dest = trash_dir.join(filename);
-    if !dest.exists() {
-        return dest;
-    }
-    let path = Path::new(filename);
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
-    
-    let mut counter = 1;
-    loop {
-        let new_name = format!("{}_{}{}", stem, counter, ext);
-        dest = trash_dir.join(&new_name);
-        if !dest.exists() {
-            return dest;
-        }
-        counter += 1;
-    }
-}
-
+/// Moves one file to the system Trash / Recycle Bin through the `trash` crate.
+///
+/// macOS uses `NSFileManager.trashItemAtURL`: no Automation permission prompt and
+/// no Finder sound per file, and files on external volumes go to that volume's
+/// own Trash instead of being copied into the home Trash. Trade-off: Finder's
+/// "Put Back" may not be offered for these files (they can still be dragged out).
 fn move_to_trash_silent(src: &Path) -> std::io::Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        trash::delete(src).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let home = std::env::var("HOME").unwrap_or_default();
-        if home.is_empty() {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "HOME env var not set"));
-        }
-        let trash_dir = Path::new(&home).join(".Trash");
-        if !trash_dir.exists() {
-            std::fs::create_dir_all(&trash_dir)?;
-        }
-        
-        let filename = src.file_name().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid source file path")
-        })?;
-        let filename_str = filename.to_string_lossy();
-        let dest = get_unique_trash_path(&trash_dir, &filename_str);
-        
-        // Try std::fs::rename first
-        if let Err(_) = std::fs::rename(src, &dest) {
-            // Fallback for cross-device moves
-            std::fs::copy(src, &dest)?;
-            std::fs::remove_file(src)?;
-        }
-        Ok(())
-    }
+    #[cfg(target_os = "macos")]
+    let result = {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        let mut ctx = trash::TrashContext::default();
+        ctx.set_delete_method(DeleteMethod::NsFileManager);
+        ctx.delete(src)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let result = trash::delete(src);
+
+    result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
 }
 
 /// `trash_fn` moves one file to the Trash. The app passes `move_to_trash_silent`;
