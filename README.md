@@ -10,10 +10,10 @@
 
 ## 1. Overview & Context
 
-**auDO FileZ** (informally `AFZ`, Version 9000) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually.
+**auDO FileZ** (informally `AFZ`) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually.
 
 > [!NOTE]
-> **Versioning Note**: Due to the addition of Microsoft Windows installer packaging constraints (which limit version fields to a maximum value of 255), the formal release versioning has been adapted to **v0.1.9004**. The application is informally referred to as Version 9000 in the user interface.
+> **Versioning Note**: From **v2.0.0** the app uses plain `major.minor.patch` versions. Earlier builds were numbered 0.1.900x and some were tagged `v9000.x`; Windows installers cap the first two version numbers at 255, so the 9000 numbering could not continue. Builds older than 2.0.0 should be updated by downloading 2.0.0 once from the Releases page.
 
 The application brings back early-2000s desktop nostalgia through optional themes while executing lightning-fast, modern backend file systems operations on Apple Silicon (macOS arm64), Intel Mac (macOS x86_64), and Windows (x64).
 

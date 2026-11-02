@@ -23,6 +23,12 @@ describe("isUpdateAvailable", () => {
     expect(isUpdateAvailable("0.1.9", "0.2")).toBe(true);
     expect(isUpdateAvailable("0.2.0", "v0.1.9999")).toBe(false);
   });
+
+  it("offers 2.0.0 to 0.1.x installs, and nothing newer to 2.0.0 itself", () => {
+    expect(isUpdateAvailable("0.1.9004", "v2.0.0")).toBe(true);
+    expect(isUpdateAvailable("2.0.0", "v2.0.0")).toBe(false);
+    expect(isUpdateAvailable("2.0.0", "v2.0.1")).toBe(true);
+  });
 });
 
 describe("matchReleaseAsset", () => {
