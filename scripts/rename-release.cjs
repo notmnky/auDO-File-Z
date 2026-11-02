@@ -3,7 +3,7 @@ const path = require('path');
 
 const target = process.argv[2];
 if (!target) {
-  console.error("Please specify target platform: mac-arm, mac-intel, or win");
+  console.error("Please specify target platform: mac-arm, mac-intel, mac-universal, or win");
   process.exit(1);
 }
 
@@ -44,6 +44,18 @@ if (target === 'mac-arm') {
   if (src && fs.existsSync(src)) {
     fs.copyFileSync(src, dest);
     console.log(`Successfully packaged Intel Mac DMG: ${dest}`);
+  } else {
+    console.error(`Build artifact not found in: ${folder}`);
+    process.exit(1);
+  }
+} else if (target === 'mac-universal') {
+  // One DMG that runs natively on both Apple Silicon and Intel Macs.
+  const folder = path.join(targetDir, 'universal-apple-darwin/release/bundle/dmg');
+  const src = findFile(folder, '.dmg');
+  const dest = path.join(releaseDir, `${appName}-v${version}-macos-universal.dmg`);
+  if (src && fs.existsSync(src)) {
+    fs.copyFileSync(src, dest);
+    console.log(`Successfully packaged universal macOS DMG: ${dest}`);
   } else {
     console.error(`Build artifact not found in: ${folder}`);
     process.exit(1);

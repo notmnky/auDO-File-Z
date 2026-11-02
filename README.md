@@ -1,8 +1,8 @@
-# auDO File Z
+# auDO FileZ
 > **High-Performance Cryptographic File Deduplication for macOS and Windows**  
 > *Platform-Aware Approved Self-Update System*
 
-[![Software Name: auDO File Z](https://img.shields.io/badge/Software-auDO%20File%20Z-blue.svg)](https://github.com/notmnky/auDO-File-Z)
+[![Software Name: auDO FileZ](https://img.shields.io/badge/Software-auDO%20FileZ-blue.svg)](https://github.com/notmnky/auDO-File-Z)
 [![Release](https://img.shields.io/github/v/release/notmnky/auDO-File-Z)](https://github.com/notmnky/auDO-File-Z/releases)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/notmnky/auDO-File-Z)
 
@@ -10,24 +10,21 @@
 
 ## 1. Overview & Context
 
-**auDO File Z** (informally `auDOfile` or `AFZ`, Version 9000) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually.
-
-> [!IMPORTANT]
-> **Product Identity & Naming**: The official name of this software is **auDO File Z** (also referred to online as **auDOfile**). 
-> **DoorsXP-Z** (Retro Windows XP style) and **VinylBox-Z** (Dark DJ style) are purely selectable visual themes (skins) embedded within **auDO File Z**, rather than separate tools or the application name itself.
+**auDO FileZ** (informally `AFZ`) is a high-performance, native cross-platform desktop application designed to securely scan directories, identify identical files cryptographically, and resolve duplicates visually.
 
 > [!NOTE]
-> **Versioning Note**: Due to the addition of Microsoft Windows installer packaging constraints (which limit version fields to a maximum value of 255), the formal release versioning has been adapted to **v0.1.9004**. The application is informally referred to as Version 9000 in the user interface.
+> **Versioning Note**: From **v2.0.0** the app uses plain `major.minor.patch` versions. Earlier builds were numbered 0.1.900x and some were tagged `v9000.x`; Windows installers cap the first two version numbers at 255, so the 9000 numbering could not continue. Builds older than 2.0.0 should be updated by downloading 2.0.0 once from the Releases page.
 
 The application brings back early-2000s desktop nostalgia through optional themes while executing lightning-fast, modern backend file systems operations on Apple Silicon (macOS arm64), Intel Mac (macOS x86_64), and Windows (x64).
 
 ### Key Architectural Pillars:
 *   **Platform-Aware Self-Updates**: Built-in system checking GitHub Releases API, parsing architecture compatibility (Intel macOS vs Apple Silicon macOS vs Windows x64), and downloading correct assets with explicit user consent.
 *   **Multi-Platform Compilation**: Supports macOS ARM64, macOS Intel, and Windows x64 targets from a single unified codebase.
-*   **Size-First Optimized Indexing**: Files are indexed by exact byte size first. Hashing is only performed on size matches, skipping 90% of unique files automatically.
+*   **Size-First Optimized Indexing**: Files are indexed by exact byte size first. Hashing is only performed on files that share a size with at least one other file; files with a unique size are never read.
+*   **What is never scanned**: hidden files and folders, symlinks, extra names of a hard-linked file (macOS/Linux), and the contents of package folders such as `.app`, `.vst3`, `.photoslibrary`, `.musiclibrary` and `.logicx`. Removing a "duplicate" inside one of those breaks the app, plug-in, library or project.
 *   **Rayon Parallel Processing**: Utilizes multi-threaded SHA-256 cryptographic hashing to run scans across all CPU cores.
 *   **Buffer-Streamed Hashing**: Reads file contents in constant 8KB chunks, preventing memory/RAM spikes on multi-gigabyte files.
-*   **Trash & Recycle Bin Compliance**: Relocates duplicates safely to your system's native trash folder (`~/.Trash` on macOS, Recycle Bin integration via `trash` crate on Windows) instead of executing permanent destructive deletions.
+*   **Trash & Recycle Bin Compliance**: Moves duplicates to the system Trash (macOS) or Recycle Bin (Windows) through the `trash` crate instead of deleting them permanently. On macOS, files on an external drive go to that drive's Trash. Finder's "Put Back" may not be offered for them; drag them out of the Trash to restore.
 
 ---
 
@@ -36,38 +33,59 @@ The application brings back early-2000s desktop nostalgia through optional theme
 ### Target Build Commands
 You can compile targeted versions of the application locally:
 ```bash
-# Apple Silicon (macOS arm64)
+# Universal macOS (one app for Apple Silicon and Intel; this is what releases ship)
+npm run build:mac-universal
+
+# Apple Silicon only (macOS arm64)
 npm run build:mac-arm
 
-# Intel Mac (macOS x86_64)
+# Intel Mac only (macOS x86_64)
 npm run build:mac-intel
 
 # Windows (x64)
 npm run build:win
 
-# Build all targets
+# Build both single-architecture macOS targets
 npm run build:all
+
+# Check that version.json, package.json, Cargo.toml and tauri.conf.json agree
+npm run check:versions
 ```
 
+### Publishing a release
+1. Set the same version in `version.json`, `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, then run `npm run check:versions`.
+2. Tag the commit as `v` plus that version, e.g. `v0.1.9005`, and push the tag. GitHub Actions builds the universal macOS and Windows installers and publishes the release.
+
+The workflow refuses a tag that does not match the version files. The in-app updater compares `version.json` with the latest tag, so a tag like `v9000.5` would make every install show an update that never goes away.
+
+### Supported systems
+| System | Supported | Download |
+|---|---|---|
+| macOS on Apple Silicon (M1 and later) | Yes | Universal `.dmg` |
+| macOS on Intel | Yes | Universal `.dmg` |
+| Windows 10/11, 64-bit | Yes | `x64-setup.exe` or `x64_en-US.msi` |
+| Windows 11 on ARM | Not tested (runs the 64-bit build through Windows emulation) | `x64-setup.exe` |
+| Windows, 32-bit | No | — |
+
 ### macOS Installation
-1. Download the latest **`audofilez.app.tar.gz`** or **`auDO File Z_0.1.9004_aarch64.dmg`** from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
+1. Download the latest **`auDO.FileZ_<version>_universal.dmg`** from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases). The same file works on Apple Silicon and Intel Macs.
 2. Alternatively, install it directly to `/Applications` via your Terminal:
    ```bash
-   curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/audofilez.app.tar.gz | tar -xz -C /Applications
+   curl -L -s https://github.com/notmnky/auDO-File-Z/releases/latest/download/auDO.FileZ_universal.app.tar.gz | tar -xz -C /Applications
    ```
 
 > [!WARNING]
 > **macOS Gatekeeper Warning**: Because this application is compiled in the cloud and is not signed/notarized with a paid Apple Developer Account, macOS will block it from running with the error:
-> *“auDO File Z” is damaged and can’t be opened. You should move it to the Bin.*
+> *“auDO FileZ” is damaged and can’t be opened. You should move it to the Bin.*
 > 
 > This is standard macOS behavior for unsigned software downloaded via web browsers. To bypass this, move the app to your `/Applications` directory and run the following command in your Terminal to remove the quarantine flag:
 > ```bash
-> xattr -cr "/Applications/auDO File Z.app"
+> xattr -cr "/Applications/auDO FileZ.app"
 > ```
 
 ### Windows Installation
-1. Download the latest **`auDO File Z_0.1.9004_x64_en-US.msi`** installer from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases).
-2. Double-click the `.msi` file to run the setup wizard.
+1. Download the latest **`auDO.FileZ_<version>_x64-setup.exe`** (or the **`…_x64_en-US.msi`**) installer from the [GitHub Releases Page](https://github.com/notmnky/auDO-File-Z/releases). The in-app updater uses the `.exe` installer.
+2. Double-click the installer to run the setup wizard.
 3. If Windows Defender SmartScreen blocks the app during launch:
    * Click **More info**.
    * Click **Run anyway**.
@@ -76,7 +94,7 @@ npm run build:all
 To read protected user directories and calculate file hashes, macOS requires Full Disk Access:
 1. Open **System Settings** -> **Privacy & Security** -> **Full Disk Access**.
 2. Click the **Add (+)** button at the bottom of the list.
-3. Select **auDO File Z** (or your Terminal program if running from source) and enable the toggle switch.
+3. Select **auDO FileZ** (or your Terminal program if running from source) and enable the toggle switch.
 
 ---
 
@@ -128,6 +146,8 @@ Using the dropdown above the table, choose how checkmarks are set:
 *   **Auto-Select Oldest**: Automatically checks older duplicate copies, leaving the newest (most recently modified) copy unchecked (preserved as original). Any read-only files are bypassed and kept unchecked.
 *   **Auto-Select Newest**: Automatically checks newer duplicate copies, leaving the oldest copy unchecked (preserved as original). Any read-only files are bypassed and kept unchecked.
 
+**How "older" and "newer" are decided:** Auto-Select compares the **Date Modified** column. If copies share the same modified time (for example, Finder copies keep the original's modified time), the **Date Created** time decides, and then the file path, so the result is always the same for the same files. If every copy in a group is read-only, nothing is selected for that group and the status bar reports how many groups were skipped.
+
 ### Resolution Engine Options
 Before resolving duplicates, toggle the action type at the bottom:
 1.  **Clean Delete (Move to Trash)**: Relocates checked duplicates to your macOS Trash.
@@ -136,13 +156,13 @@ Before resolving duplicates, toggle the action type at the bottom:
 
 ---
 
-## 6. Dynamic Skin Swapping (Themes within auDO File Z)
+## 6. Skins
 
-**auDO File Z** includes customizable visual themes that can be switched on the fly without restarting:
+**auDO FileZ** includes customizable visual themes that can be switched on the fly without restarting:
 *   **DoorsXP-Z (Retro)**: The nostalgic Windows XP theme featuring a bright blue title bar, retro grey bevels, and classic `#ECE9D8` dialog styling.
 *   **VinylBox-Z (Dark)**: A dark, sleek, professional theme mimicking the Rekordbox / AlphaTheta DJ aesthetic, featuring matte black backgrounds (`#121212`), high-contrast neon orange accents (`#FF6600`), flat edges, and customized dark scrollbars.
 
-You can toggle skins instantly by selecting them from the native macOS application menu under **View > Skins** or the custom in-window dropdown menu. Notice: both themes are built directly into **auDO File Z**.
+You can toggle skins instantly by selecting them from the native macOS application menu under **View > Skins** or the custom in-window dropdown menu. Notice: both themes are built directly into **auDO FileZ**.
 
 ---
 

@@ -4,6 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import versionInfo from "../version.json";
+import { computeSelections, type SelectionMode } from "./selection";
+import { formatVersionDate, isUpdateAvailable, matchReleaseAsset } from "./updates";
 import { 
   Settings, 
   ShieldAlert, 
@@ -38,6 +40,7 @@ interface ColumnWidths {
   filename: number;
   path: number;
   date: number;
+  modified: number;
   size: number;
 }
 
@@ -46,6 +49,7 @@ const DEFAULT_COL_WIDTHS: ColumnWidths = {
   filename: 260,
   path: 360,
   date: 160,
+  modified: 160,
   size: 110,
 };
 
@@ -54,6 +58,7 @@ const MIN_COL_WIDTHS: ColumnWidths = {
   filename: 120,
   path: 140,
   date: 110,
+  modified: 110,
   size: 80,
 };
 
@@ -80,11 +85,16 @@ const formatDate = (epochMillis: number): string => {
 };
 
 const APP_VERSION = versionInfo.version;
+// e.g. "2 November 2026"; empty if the build did not provide a date.
+const APP_VERSION_DATE = formatVersionDate(
+  typeof __APP_VERSION_DATE__ !== "undefined" ? __APP_VERSION_DATE__ : ""
+);
 
 function App() {
   // App States
   const [showUpdatePrompt, setShowUpdatePrompt] = useState<boolean>(false);
   const [updateTag, setUpdateTag] = useState<string>("");
+  const [updateDate, setUpdateDate] = useState<string>("");
   const [updateBody, setUpdateBody] = useState<string>("");
   const [updateAssetUrl, setUpdateAssetUrl] = useState<string>("");
   const [updateAssetName, setUpdateAssetName] = useState<string>("");
@@ -148,6 +158,7 @@ function App() {
           filename: Math.max(MIN_COL_WIDTHS.filename, parsed.filename || DEFAULT_COL_WIDTHS.filename),
           path: Math.max(MIN_COL_WIDTHS.path, parsed.path || DEFAULT_COL_WIDTHS.path),
           date: Math.max(MIN_COL_WIDTHS.date, parsed.date || DEFAULT_COL_WIDTHS.date),
+          modified: Math.max(MIN_COL_WIDTHS.modified, parsed.modified || DEFAULT_COL_WIDTHS.modified),
           size: Math.max(MIN_COL_WIDTHS.size, parsed.size || DEFAULT_COL_WIDTHS.size),
         };
       }
@@ -316,47 +327,7 @@ function App() {
     runFdaCheck();
   }, []);
 
-  // Semantic Version Comparison
-  const isUpdateAvailable = (current: string, latest: string): boolean => {
-    const cleanCurrent = current.replace(/^v/, "");
-    const cleanLatest = latest.replace(/^v/, "");
-
-    const currentParts = cleanCurrent.split(".").map(Number);
-    const latestParts = cleanLatest.split(".").map(Number);
-
-    for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
-      const curr = currentParts[i] || 0;
-      const lat = latestParts[i] || 0;
-      if (lat > curr) return true;
-      if (curr > lat) return false;
-    }
-    return false;
-  };
-
-  // Find the appropriate release asset for current platform/architecture
-  const matchReleaseAsset = (assets: any[], os: string, arch: string) => {
-    return assets.find(asset => {
-      const name = asset.name.toLowerCase();
-      const cleanOs = os.toLowerCase();
-      const cleanArch = arch.toLowerCase();
-
-      if (cleanOs === "macos") {
-        if (!name.endsWith(".dmg")) return false;
-        if (cleanArch === "arm64" || cleanArch === "aarch64") {
-          return name.includes("macos-arm64");
-        } else if (cleanArch === "x64" || cleanArch === "x86_64" || cleanArch === "intel") {
-          return name.includes("macos-intel");
-        }
-      } else if (cleanOs === "windows" || cleanOs === "win") {
-        if (!name.endsWith(".exe")) return false;
-        if (cleanArch === "x64" || cleanArch === "x86_64") {
-          return name.includes("windows-x64");
-        }
-      }
-      return false;
-    });
-  };
-
+  // Version comparison and asset matching live in ./updates.ts (unit tested).
 
   // Run update check
   const runUpdateCheck = async (isManual: boolean = false) => {
@@ -396,6 +367,7 @@ function App() {
         const asset = matchReleaseAsset(data.assets || [], metadata.os, metadata.arch);
         if (asset) {
           setUpdateTag(latestTag);
+          setUpdateDate(formatVersionDate(data.published_at));
           setUpdateBody(releaseBody);
           setUpdateAssetUrl(asset.browser_download_url);
           setUpdateAssetName(asset.name);
@@ -569,52 +541,25 @@ function App() {
     }
   };
 
-  // Apply auto-selection logic based on modified dates
-  const applySelectionMode = (mode: "manual" | "oldest" | "newest", currentResults: DuplicateGroup[]) => {
-    if (mode === "manual") return;
-    
-    const newSelections: Record<string, boolean> = {};
-    currentResults.forEach(group => {
-      if (group.files.length === 0) return;
-
-      let keepIndex = 0;
-      if (mode === "oldest") {
-        // Keep the newest file (max modified timestamp), check older ones for deletion
-        let maxModified = -1;
-        group.files.forEach((file, index) => {
-          if (file.modified > maxModified) {
-            maxModified = file.modified;
-            keepIndex = index;
-          }
-        });
-      } else if (mode === "newest") {
-        // Keep the oldest file (min modified timestamp), check newer ones for deletion
-        let minModified = Infinity;
-        group.files.forEach((file, index) => {
-          if (file.modified < minModified) {
-            minModified = file.modified;
-            keepIndex = index;
-          }
-        });
-      }
-
-      group.files.forEach((file, index) => {
-        if (file.read_only) {
-          newSelections[file.path] = false;
-        } else {
-          newSelections[file.path] = index !== keepIndex;
-        }
-      });
-    });
-    
-    setSelectedFiles(newSelections);
+  // Apply auto-selection (logic lives in ./selection.ts so it can be unit tested).
+  // Returns the number of groups where nothing could be selected because of read-only copies.
+  const applySelectionMode = (mode: SelectionMode, currentResults: DuplicateGroup[]): number => {
+    if (mode === "manual") return 0;
+    const { selections, readOnlyBlockedGroups } = computeSelections(mode, currentResults);
+    setSelectedFiles(selections);
+    return readOnlyBlockedGroups;
   };
+
+  const readOnlyNote = (blocked: number) =>
+    blocked > 0
+      ? ` ${blocked} group${blocked === 1 ? "" : "s"} skipped: read-only copies are never auto-selected.`
+      : "";
 
   // Handle selection dropdown changes
   const handleSelectionModeChange = (mode: "manual" | "oldest" | "newest") => {
     setSelectionMode(mode);
-    applySelectionMode(mode, scanResults);
-    setStatusMessage(`Selection mode changed to: ${mode === "oldest" ? "Auto-Select Oldest" : mode === "newest" ? "Auto-Select Newest" : "Manual"}`);
+    const blocked = applySelectionMode(mode, scanResults);
+    setStatusMessage(`Selection mode changed to: ${mode === "oldest" ? "Auto-Select Oldest" : mode === "newest" ? "Auto-Select Newest" : "Manual"}.${readOnlyNote(blocked)}`);
   };
 
   // Deselect All checkboxes
@@ -671,10 +616,10 @@ function App() {
       if (selectionMode === "manual") {
         setSelectionMode("oldest");
       }
-      applySelectionMode(modeToApply, results);
+      const blocked = applySelectionMode(modeToApply, results);
       
       const totalFiles = results.reduce((acc, g) => acc + g.files.length, 0);
-      setStatusMessage(`Scan complete. Found ${results.length} groups (${totalFiles} files).`);
+      setStatusMessage(`Scan complete. Found ${results.length} groups (${totalFiles} files).${readOnlyNote(blocked)}`);
     } catch (err) {
       console.error("Error during scan:", err);
       setStatusMessage("Scan failed due to an internal error.");
@@ -736,7 +681,14 @@ function App() {
 
   // File Resolution Engine trigger
   const handleResolve = async () => {
-    const resolutionItems: { target: string; original: string }[] = [];
+    // Scan-time size and modified times let the backend refuse files that changed since the scan.
+    const resolutionItems: {
+      target: string;
+      original: string;
+      size: number;
+      target_modified: number;
+      original_modified: number;
+    }[] = [];
     let allGroupsValid = true;
     let errorMsg = "";
 
@@ -757,7 +709,10 @@ function App() {
       checked.forEach(file => {
         resolutionItems.push({
           target: file.path,
-          original: original.path
+          original: original.path,
+          size: file.size,
+          target_modified: file.modified,
+          original_modified: original.modified,
         });
       });
     }
@@ -786,8 +741,8 @@ function App() {
         mode: resolutionMode
       });
 
-      // Check if any files were skipped due to permission errors (partial success)
-      const hadSkipped = resMessage.includes("were skipped due to permission errors");
+      // Partial success: anything other than a clean run is shown as a warning
+      const hadSkipped = !resMessage.startsWith("Successfully");
       setStatusMessage(hadSkipped ? `⚠ ${resMessage}` : resMessage);
 
       setScanResults([]);
@@ -957,8 +912,8 @@ function App() {
         className={`flex items-center justify-between h-[30px] font-bold text-sm select-none z-10 cursor-default ${titleBarClass}`}
       >
         <div className="flex items-center gap-1.5 px-2 pointer-events-none select-none">
-          <img src="/afz-logo-sq.png" className="w-[16px] h-[16px] object-contain" alt="auDO File Z Logo" />
-          <span className={`${isDoors ? "drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" : ""}`}>auDO File Z by notMNKY</span>
+          <img src="/afz-logo-sq.png" className="w-[16px] h-[16px] object-contain" alt="auDO FileZ Logo" />
+          <span className={`${isDoors ? "drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" : ""}`}>auDO FileZ by notMNKY</span>
         </div>
         <div className="flex items-center gap-1 pr-1" onClick={(e) => e.stopPropagation()}>
           {/* Minimize */}
@@ -1103,7 +1058,7 @@ function App() {
                 onClick={() => handleMenuAction("about")} 
                 className={`w-full text-left px-3 py-1 text-xs ${dropdownBtnClass}`}
               >
-                About auDO File Z
+                About auDO FileZ
               </button>
               <button 
                 onClick={() => handleMenuAction("view-log")} 
@@ -1147,7 +1102,7 @@ function App() {
             {/* Wizard Header Banner */}
             <div className={`p-3 border-b flex justify-between items-center ${isDoors ? "bg-white border-xp-greyShadow" : "bg-[#1c1c1c] border-[#2c2c2c]"}`}>
               <div>
-                <h2 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO File Z Setup Wizard</h2>
+                <h2 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO FileZ Setup Wizard</h2>
                 <p className="text-gray-500 mt-0.5">Configure macOS Full Disk Access permissions.</p>
               </div>
               <ShieldAlert className={`${isDoors ? "text-xp-blue" : "text-[#FF6600]"} w-10 h-10`} />
@@ -1167,7 +1122,7 @@ function App() {
                   <li>Open macOS <strong>System Settings</strong>.</li>
                   <li>Navigate to <strong>Privacy & Security</strong> &gt; <strong>Full Disk Access</strong>.</li>
                   <li>Click the <strong>Add (+)</strong> button at the bottom of the list.</li>
-                  <li>Select or drag <strong>auDO File Z.app</strong> (or your terminal/runner) and enable the toggle switch.</li>
+                  <li>Select or drag <strong>auDO FileZ.app</strong> (or your terminal/runner) and enable the toggle switch.</li>
                 </ol>
               </div>
 
@@ -1309,7 +1264,7 @@ function App() {
                   </label>
                   <span className="text-[10px] text-gray-500 italic">
                     {scanResults.length > 0 && (
-                      selectionMode === "oldest" ? "(Preserves newest copy)" : selectionMode === "newest" ? "(Preserves oldest copy)" : "(Custom override active)"
+                      selectionMode === "oldest" ? "(Keeps the most recently modified copy)" : selectionMode === "newest" ? "(Keeps the earliest modified copy)" : "(Custom override active)"
                     )}
                   </span>
                 </div>
@@ -1330,8 +1285,8 @@ function App() {
                   className={`text-left font-bold text-xs select-none sticky top-0 z-20 ${dataGridHeaderClass}`}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px minmax(${colWidths.size}px, 1fr)`,
-                    minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px`,
+                    gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px ${colWidths.modified}px minmax(${colWidths.size}px, 1fr)`,
+                    minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.modified + colWidths.size}px`,
                   }}
                 >
                   <div className={`p-2 border-r relative flex items-center justify-center ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
@@ -1370,6 +1325,15 @@ function App() {
                       title="Drag to resize column (Double-click to reset)"
                     />
                   </div>
+                  <div className={`p-2 border-r relative flex items-center justify-between ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
+                    <span className="truncate" title="Auto-select Oldest/Newest compares this date">Date Modified</span>
+                    <div 
+                      onMouseDown={(e) => startResizing("modified", e)}
+                      onDoubleClick={() => resetColWidth("modified")}
+                      className="col-resizer"
+                      title="Drag to resize column (Double-click to reset)"
+                    />
+                  </div>
                   <div className="p-2 flex items-center justify-end pr-4 relative">
                     <span>Size</span>
                   </div>
@@ -1393,7 +1357,7 @@ function App() {
                           
                           {/* Group Header */}
                           <div 
-                            style={{ minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px` }}
+                            style={{ minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.modified + colWidths.size}px` }}
                             className={`px-2 py-1 flex items-center justify-between border-b text-[10px] font-semibold sticky left-0 ${isDoors ? "bg-xp-greyLight border-xp-greyBorder text-xp-blueDark" : "bg-[#181818] border-[#252525] text-[#FF6600]"}`}
                           >
                             <div className="flex items-center gap-1.5">
@@ -1435,8 +1399,8 @@ function App() {
                                 }}
                                 style={{
                                   display: "grid",
-                                  gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px minmax(${colWidths.size}px, 1fr)`,
-                                  minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px`,
+                                  gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px ${colWidths.modified}px minmax(${colWidths.size}px, 1fr)`,
+                                  minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.modified + colWidths.size}px`,
                                 }}
                                 className={`text-xs py-1.5 items-center cursor-pointer group ${dataGridRowClass(isKeep)}`}
                               >
@@ -1493,6 +1457,11 @@ function App() {
                                 {/* Date Created Column */}
                                 <div className="px-2 truncate font-mono text-[10px] overflow-hidden" title={formatDate(file.created)}>
                                   {formatDate(file.created)}
+                                </div>
+
+                                {/* Date Modified Column (used by Auto-Select Oldest/Newest) */}
+                                <div className="px-2 truncate font-mono text-[10px] overflow-hidden" title={formatDate(file.modified)}>
+                                  {formatDate(file.modified)}
                                 </div>
 
                                 {/* Size */}
@@ -1648,7 +1617,7 @@ function App() {
           <div className={`w-[360px] shadow-lg text-xs font-tahoma border-2 ${isDoors ? "xp-outset bg-xp-grey border-xp-blueDark" : "bg-[#181818] border-[#333333] text-white"}`}>
             {/* Title Bar */}
             <div className={`flex items-center justify-between h-[25px] px-1.5 font-bold ${isDoors ? "bg-gradient-to-r from-xp-blue to-xp-blueLight text-white" : "bg-[#1c1c1c] text-[#FF6600] border-b border-[#2c2c2c]"}`}>
-              <span className={isDoors ? "drop-shadow-[1px_1px_0px_rgba(0,0,0,0.5)]" : ""}>About auDO File Z</span>
+              <span className={isDoors ? "drop-shadow-[1px_1px_0px_rgba(0,0,0,0.5)]" : ""}>About auDO FileZ</span>
               <button 
                 onClick={() => setShowAbout(false)}
                 className={`w-[16px] h-[16px] flex items-center justify-center text-[10px] text-white font-extrabold pb-0.5 rounded-[2px] ${isDoors ? "xp-btn-close" : "bg-[#333] hover:bg-red-600 border-none"}`}
@@ -1661,8 +1630,9 @@ function App() {
               <div className="flex gap-3">
                 <Settings className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
-                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO File Z</h3>
+                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO FileZ</h3>
                   <p className="text-gray-500">Version {APP_VERSION}</p>
+                  {APP_VERSION_DATE && <p className="text-gray-500">Updated {APP_VERSION_DATE}</p>}
                   <p className="text-gray-500 mt-1">© 2026 Nishank / notMNKY</p>
                 </div>
               </div>
@@ -1755,8 +1725,8 @@ function App() {
               <div className="flex gap-3">
                 <Info className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
-                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>A new version of auDO File Z is available!</h3>
-                  <p className="text-gray-500 mt-0.5">Version {updateTag} is now available (Current: {APP_VERSION}).</p>
+                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>A new version of auDO FileZ is available!</h3>
+                  <p className="text-gray-500 mt-0.5">Version {updateTag}{updateDate ? `, released ${updateDate},` : ""} is now available (Current: {APP_VERSION}{APP_VERSION_DATE ? `, ${APP_VERSION_DATE}` : ""}).</p>
                 </div>
               </div>
 
