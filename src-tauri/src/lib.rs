@@ -792,8 +792,56 @@ fn get_app_metadata() -> AppMetadata {
     }
 }
 
+/// Only assets attached to this repository's GitHub releases may be downloaded.
+const UPDATE_URL_PREFIX: &str = "https://github.com/notmnky/auDO-File-Z/releases/download/";
+const UPDATE_EXTENSIONS: [&str; 5] = [".dmg", ".msi", ".exe", ".zip", ".tar.gz"];
+
+/// Checks an update request from the frontend. Returns the file name to save as.
+///
+/// The URL must be a release-asset URL of this repository (https only, no query,
+/// fragment, `..` or whitespace). The file name must be a plain base name with an
+/// installer extension, and must equal the URL's last segment, so the frontend
+/// cannot pick a different save location or name than the asset itself.
+fn validate_update_request(url: &str, filename: &str) -> Result<String, String> {
+    let rest = url
+        .get(..UPDATE_URL_PREFIX.len())
+        .filter(|p| p.eq_ignore_ascii_case(UPDATE_URL_PREFIX))
+        .map(|_| &url[UPDATE_URL_PREFIX.len()..])
+        .ok_or("update URL is not a release asset of notmnky/auDO-File-Z")?;
+    if url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '?' | '#' | '\\' | '%')) {
+        return Err("update URL contains characters that are not allowed".into());
+    }
+    // Expect exactly "<tag>/<asset>".
+    let segments: Vec<&str> = rest.split('/').collect();
+    if segments.len() != 2 || segments.iter().any(|s| s.is_empty() || *s == "." || *s == "..") {
+        return Err("update URL does not have the form .../releases/download/<tag>/<asset>".into());
+    }
+
+    if filename.is_empty()
+        || filename.starts_with('.')
+        || filename.contains(['/', '\\', ':', '\0'])
+        || filename.contains("..")
+        || filename.chars().any(|c| c.is_control())
+    {
+        return Err("update file name is not a plain file name".into());
+    }
+    let lower = filename.to_ascii_lowercase();
+    if !UPDATE_EXTENSIONS.iter().any(|ext| lower.ends_with(ext)) {
+        return Err("update file is not an installer (.dmg, .msi, .exe, .zip, .tar.gz)".into());
+    }
+    if filename != segments[1] {
+        return Err("update file name does not match the release asset".into());
+    }
+    Ok(filename.to_string())
+}
+
 #[tauri::command]
 async fn download_and_open_update(url: String, filename: String) -> Result<(), String> {
+    let filename = validate_update_request(&url, &filename).map_err(|e| {
+        write_to_log_file(&format!("Update download refused for '{}': {}", url, e));
+        format!("Update refused: {}", e)
+    })?;
+
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map_err(|e| e.to_string())?;
@@ -802,11 +850,14 @@ async fn download_and_open_update(url: String, filename: String) -> Result<(), S
 
     write_to_log_file(&format!("Starting download of update asset from '{}' to '{}'", url, dest_path.display()));
 
-    // Run curl to download the file
+    // Run curl to download the file. https only, including redirects
+    // (GitHub redirects asset downloads to its download CDN); --fail so an
+    // error page is never saved and opened as if it were the installer.
     let status = std::process::Command::new("curl")
-        .arg("-L")
+        .args(["--fail", "--location", "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5"])
         .arg("-o")
         .arg(&dest_path)
+        .arg("--")
         .arg(&url)
         .status()
         .map_err(|e| format!("Failed to run curl: {}", e))?;
@@ -1261,5 +1312,35 @@ mod tests {
         // Every script line is preceded by -e.
         assert_eq!(args.len(), GET_INFO_SCRIPT.len() * 2 + 1);
         assert!(args.iter().step_by(2).take(GET_INFO_SCRIPT.len()).all(|a| a == "-e"));
+    }
+
+    #[test]
+    fn update_request_accepts_this_repos_release_assets() {
+        let base = "https://github.com/notmnky/auDO-File-Z/releases/download/v0.1.9005/";
+        for name in ["auDO.FileZ_0.1.9005_aarch64.dmg", "auDO.FileZ_0.1.9005_x64_en-US.msi", "setup-windows-x64.exe", "audofilez.app.tar.gz"] {
+            assert_eq!(validate_update_request(&format!("{base}{name}"), name), Ok(name.to_string()), "{name}");
+        }
+    }
+
+    #[test]
+    fn update_request_rejects_everything_else() {
+        let ok_url = "https://github.com/notmnky/auDO-File-Z/releases/download/v1/app.dmg";
+        let bad_urls = [
+            "http://github.com/notmnky/auDO-File-Z/releases/download/v1/app.dmg",   // not https
+            "https://evil.example/notmnky/auDO-File-Z/releases/download/v1/app.dmg", // other host
+            "https://github.com/someone/else/releases/download/v1/app.dmg",         // other repo
+            "https://github.com/notmnky/auDO-File-Z/releases/download/v1/../x/app.dmg",
+            "https://github.com/notmnky/auDO-File-Z/releases/download/v1/app.dmg?x=1",
+            "https://github.com/notmnky/auDO-File-Z/releases/download/v1/app%2F.dmg",
+            "https://github.com/notmnky/auDO-File-Z/releases/download/app.dmg",     // no tag
+            "file:///etc/passwd",
+        ];
+        for u in bad_urls {
+            assert!(validate_update_request(u, "app.dmg").is_err(), "{u}");
+        }
+        let bad_names = ["../app.dmg", "/tmp/app.dmg", "..\\app.dmg", ".app.dmg", "app.sh", "other.dmg", ""];
+        for n in bad_names {
+            assert!(validate_update_request(ok_url, n).is_err(), "{n:?}");
+        }
     }
 }
