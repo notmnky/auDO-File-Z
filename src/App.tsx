@@ -714,7 +714,14 @@ function App() {
 
   // File Resolution Engine trigger
   const handleResolve = async () => {
-    const resolutionItems: { target: string; original: string }[] = [];
+    // Scan-time size and modified times let the backend refuse files that changed since the scan.
+    const resolutionItems: {
+      target: string;
+      original: string;
+      size: number;
+      target_modified: number;
+      original_modified: number;
+    }[] = [];
     let allGroupsValid = true;
     let errorMsg = "";
 
@@ -735,7 +742,10 @@ function App() {
       checked.forEach(file => {
         resolutionItems.push({
           target: file.path,
-          original: original.path
+          original: original.path,
+          size: file.size,
+          target_modified: file.modified,
+          original_modified: original.modified,
         });
       });
     }
@@ -764,8 +774,8 @@ function App() {
         mode: resolutionMode
       });
 
-      // Check if any files were skipped due to permission errors (partial success)
-      const hadSkipped = resMessage.includes("were skipped due to permission errors");
+      // Partial success: some files were skipped (changed, missing, or could not be trashed)
+      const hadSkipped = resMessage.includes("were skipped");
       setStatusMessage(hadSkipped ? `⚠ ${resMessage}` : resMessage);
 
       setScanResults([]);

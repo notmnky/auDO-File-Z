@@ -26,10 +26,67 @@ pub struct DuplicateGroup {
     pub files: Vec<DuplicateFile>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub struct ResolutionItem {
     pub target: String,
     pub original: String,
+    /// Scan-time values. When present, the files must still match them.
+    #[serde(default)]
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub target_modified: Option<u64>,
+    #[serde(default)]
+    pub original_modified: Option<u64>,
+}
+
+fn modified_ms(meta: &std::fs::Metadata) -> Option<u64> {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+}
+
+/// Checks, right before anything is moved, that the duplicate and the copy
+/// being kept still exist and still look the way they did at scan time.
+/// Returns a short reason when the item must be skipped.
+fn validate_resolution_item(item: &ResolutionItem) -> Result<(), String> {
+    let target = Path::new(&item.target);
+    let original = Path::new(&item.original);
+
+    let t_meta = std::fs::symlink_metadata(target).map_err(|_| "duplicate no longer exists".to_string())?;
+    if !t_meta.is_file() {
+        return Err("duplicate is no longer a regular file".to_string());
+    }
+    let o_meta = std::fs::symlink_metadata(original).map_err(|_| "kept copy no longer exists".to_string())?;
+    if !o_meta.is_file() {
+        return Err("kept copy is no longer a regular file".to_string());
+    }
+
+    let t_canon = std::fs::canonicalize(target).map_err(|e| format!("cannot resolve duplicate path: {}", e))?;
+    let o_canon = std::fs::canonicalize(original).map_err(|e| format!("cannot resolve kept copy path: {}", e))?;
+    if t_canon == o_canon {
+        return Err("duplicate and kept copy are the same file".to_string());
+    }
+
+    if t_meta.len() != o_meta.len() {
+        return Err("duplicate and kept copy no longer have the same size".to_string());
+    }
+    if let Some(size) = item.size {
+        if t_meta.len() != size {
+            return Err("size changed since the scan".to_string());
+        }
+    }
+    if let Some(m) = item.target_modified {
+        if modified_ms(&t_meta) != Some(m) {
+            return Err("duplicate was modified since the scan".to_string());
+        }
+    }
+    if let Some(m) = item.original_modified {
+        if modified_ms(&o_meta) != Some(m) {
+            return Err("kept copy was modified since the scan".to_string());
+        }
+    }
+    Ok(())
 }
 
 fn write_to_log_file(message: &str) {
@@ -482,13 +539,16 @@ where
 
     for item in &items {
         let target_path = Path::new(&item.target);
-        if !target_path.exists() {
-            resolved_count += 1;
-            write_to_log_file(&format!("Skipping file '{}' as it already does not exist.", item.target));
+        if let Err(reason) = validate_resolution_item(item) {
+            write_to_log_file(&format!(
+                "Warning: Skipped '{}' (kept copy '{}'): {}.",
+                item.target, item.original, reason
+            ));
+            skipped_items.push(item.target.clone());
             if let Some(ref pf) = progress_fn {
                 pf(resolved_count + skipped_items.len());
             }
-            continue; // Skip if already resolved
+            continue;
         }
 
         write_to_log_file(&format!("Resolving file: '{}' pointing to original: '{}'", item.target, item.original));
@@ -547,12 +607,12 @@ where
         Ok(format!("Successfully resolved {} duplicates.", resolved_count))
     } else {
         write_to_log_file(&format!(
-            "Resolution complete with warnings. Resolved {} of {} items. Skipped {} items due to permission errors (see log).",
+            "Resolution complete with warnings. Resolved {} of {} items. Skipped {} items (see warnings above).",
             resolved_count, items.len(), skipped_items.len()
         ));
         // Return Ok with a summary message — the frontend will display it as a warning, not a hard error.
         Ok(format!(
-            "Resolved {} of {} files. {} file(s) were skipped due to permission errors — open Help > View App Log for details.",
+            "Resolved {} of {} files. {} file(s) were skipped (changed or missing since the scan, or could not be moved to the Trash) — open Help > View App Log for details.",
             resolved_count, items.len(), skipped_items.len()
         ))
     }
@@ -926,6 +986,7 @@ mod tests {
             ResolutionItem {
                 target: file_2.to_string_lossy().into_owned(),
                 original: file_1.to_string_lossy().into_owned(),
+                ..Default::default()
             }
         ];
         
@@ -941,6 +1002,7 @@ mod tests {
             ResolutionItem {
                 target: file_1.to_string_lossy().into_owned(),
                 original: file_1.to_string_lossy().into_owned(),
+                ..Default::default()
             }
         ];
         let bad_res = resolve_duplicates_internal(bad_items, "symlink".to_string(), fake_trash(trash_dir.clone()), None::<fn(usize)>);
@@ -968,8 +1030,8 @@ mod tests {
             }
         };
         let items = vec![
-            ResolutionItem { target: locked.to_string_lossy().into(), original: orig.to_string_lossy().into() },
-            ResolutionItem { target: ok.to_string_lossy().into(), original: orig.to_string_lossy().into() },
+            ResolutionItem { target: locked.to_string_lossy().into(), original: orig.to_string_lossy().into(), ..Default::default() },
+            ResolutionItem { target: ok.to_string_lossy().into(), original: orig.to_string_lossy().into(), ..Default::default() },
         ];
         let msg = resolve_duplicates_internal(items, "delete".to_string(), failing_trash, None::<fn(usize)>).unwrap();
         assert!(msg.contains("1 file(s) were skipped"), "{msg}");
@@ -977,6 +1039,101 @@ mod tests {
         assert!(!ok.exists());
         assert!(trash_dir.join("ok.txt").exists());
         assert!(orig.exists());
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    /// Item carrying the files' current size and modified times, as the frontend sends after a scan.
+    fn scanned_item(target: &Path, original: &Path) -> ResolutionItem {
+        let t = fs::metadata(target).unwrap();
+        let o = fs::metadata(original).unwrap();
+        ResolutionItem {
+            target: target.to_string_lossy().into(),
+            original: original.to_string_lossy().into(),
+            size: Some(t.len()),
+            target_modified: modified_ms(&t),
+            original_modified: modified_ms(&o),
+        }
+    }
+
+    #[test]
+    fn validation_accepts_unchanged_files() {
+        let sandbox = temp_sandbox("valid_ok");
+        let (a, b) = (sandbox.join("a.txt"), sandbox.join("b.txt"));
+        write_file(&a, b"same");
+        write_file(&b, b"same");
+        assert_eq!(validate_resolution_item(&scanned_item(&b, &a)), Ok(()));
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn validation_rejects_missing_kept_copy_and_nothing_is_trashed() {
+        let sandbox = temp_sandbox("valid_missing");
+        let (a, b) = (sandbox.join("a.txt"), sandbox.join("b.txt"));
+        write_file(&a, b"same");
+        write_file(&b, b"same");
+        let item = scanned_item(&b, &a);
+        fs::remove_file(&a).unwrap(); // kept copy disappears after the scan
+        assert_eq!(validate_resolution_item(&item), Err("kept copy no longer exists".to_string()));
+
+        let trash_dir = sandbox.join("trash");
+        let msg = resolve_duplicates_internal(vec![item], "delete".to_string(), fake_trash(trash_dir.clone()), None::<fn(usize)>).unwrap();
+        assert!(msg.contains("1 file(s) were skipped"), "{msg}");
+        assert!(b.exists(), "the last remaining copy must not be trashed");
+        assert!(!trash_dir.exists());
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn validation_rejects_missing_duplicate() {
+        let sandbox = temp_sandbox("valid_gone");
+        let (a, b) = (sandbox.join("a.txt"), sandbox.join("b.txt"));
+        write_file(&a, b"same");
+        write_file(&b, b"same");
+        let item = scanned_item(&b, &a);
+        fs::remove_file(&b).unwrap();
+        assert_eq!(validate_resolution_item(&item), Err("duplicate no longer exists".to_string()));
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn validation_rejects_files_changed_since_scan() {
+        let sandbox = temp_sandbox("valid_changed");
+        let (a, b) = (sandbox.join("a.txt"), sandbox.join("b.txt"));
+        write_file(&a, b"same");
+        write_file(&b, b"same");
+
+        // Same size, different modified time: rewritten in place after the scan.
+        let mut item = scanned_item(&b, &a);
+        item.target_modified = item.target_modified.map(|m| m - 5_000);
+        assert_eq!(validate_resolution_item(&item), Err("duplicate was modified since the scan".to_string()));
+
+        let mut item = scanned_item(&b, &a);
+        item.original_modified = item.original_modified.map(|m| m - 5_000);
+        assert_eq!(validate_resolution_item(&item), Err("kept copy was modified since the scan".to_string()));
+
+        // Kept copy grows: sizes no longer match.
+        let item = scanned_item(&b, &a);
+        write_file(&a, b"same plus more");
+        assert_eq!(
+            validate_resolution_item(&item),
+            Err("duplicate and kept copy no longer have the same size".to_string())
+        );
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn validation_rejects_same_file_under_two_paths() {
+        let sandbox = temp_sandbox("valid_same");
+        let a = sandbox.join("a.txt");
+        write_file(&a, b"same");
+        fs::create_dir_all(sandbox.join("sub")).unwrap();
+        let via_dotdot = sandbox.join("sub").join("..").join("a.txt");
+        let item = ResolutionItem {
+            target: via_dotdot.to_string_lossy().into(),
+            original: a.to_string_lossy().into(),
+            ..Default::default()
+        };
+        assert_eq!(validate_resolution_item(&item), Err("duplicate and kept copy are the same file".to_string()));
         let _ = fs::remove_dir_all(&sandbox);
     }
 }
