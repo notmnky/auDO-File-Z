@@ -774,8 +774,8 @@ function App() {
         mode: resolutionMode
       });
 
-      // Partial success: some files were skipped (changed, missing, or could not be trashed)
-      const hadSkipped = resMessage.includes("were skipped");
+      // Partial success: anything other than a clean run is shown as a warning
+      const hadSkipped = !resMessage.startsWith("Successfully");
       setStatusMessage(hadSkipped ? `⚠ ${resMessage}` : resMessage);
 
       setScanResults([]);

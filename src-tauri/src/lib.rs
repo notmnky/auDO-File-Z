@@ -469,18 +469,40 @@ fn move_to_trash_silent(src: &Path) -> std::io::Result<()> {
     result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
 }
 
-/// `trash_fn` moves one file to the Trash. The app passes `move_to_trash_silent`;
-/// tests pass a function that moves files into a temp folder, so `cargo test`
-/// never touches the developer's real Trash.
-fn resolve_duplicates_internal<F, T>(
+/// Creates a file symlink at `link` pointing to `original`.
+fn create_symlink(original: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(original, link)
+    }
+    #[cfg(windows)]
+    {
+        // Fails without Developer Mode or admin rights; handled by the caller.
+        std::os::windows::fs::symlink_file(original, link)
+    }
+}
+
+/// Hidden name next to `target` used while a link is staged. Hidden, so the
+/// crawler ignores it if one is ever left behind.
+fn staging_link_path(target: &Path) -> PathBuf {
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    target.with_file_name(format!(".{}.afz-link-{}", name, std::process::id()))
+}
+
+/// `trash_fn` moves one file to the Trash and `link_fn` creates a symlink.
+/// The app passes `move_to_trash_silent` and `create_symlink`; tests pass
+/// stand-ins, so `cargo test` never touches the developer's real Trash.
+fn resolve_duplicates_internal<F, T, L>(
     items: Vec<ResolutionItem>,
     mode: String,
     trash_fn: T,
+    link_fn: L,
     progress_fn: Option<F>,
 ) -> Result<String, String>
 where
     F: Fn(usize) + Send + Sync,
     T: Fn(&Path) -> std::io::Result<()>,
+    L: Fn(&Path, &Path) -> std::io::Result<()>,
 {
     if items.is_empty() {
         return Ok("No files to resolve.".to_string());
@@ -504,6 +526,8 @@ where
 
     let mut resolved_count = 0;
     let mut skipped_items: Vec<String> = Vec::new();
+    // Duplicates that reached the Trash but whose link could not be put in place.
+    let mut unlinked_items: Vec<String> = Vec::new();
 
     for item in &items {
         let target_path = Path::new(&item.target);
@@ -514,15 +538,39 @@ where
             ));
             skipped_items.push(item.target.clone());
             if let Some(ref pf) = progress_fn {
-                pf(resolved_count + skipped_items.len());
+                pf(resolved_count + skipped_items.len() + unlinked_items.len());
             }
             continue;
         }
 
         write_to_log_file(&format!("Resolving file: '{}' pointing to original: '{}'", item.target, item.original));
 
-        // 1. Move the target file to the macOS Trash silently
+        // Symlink mode, step 1: stage the link under a hidden name BEFORE trashing,
+        // so a link that cannot be created never costs the user a file.
+        let staged_link = if mode == "symlink" {
+            let staged = staging_link_path(target_path);
+            let _ = std::fs::remove_file(&staged); // stale leftover from a crashed run
+            if let Err(e) = link_fn(Path::new(&item.original), &staged) {
+                write_to_log_file(&format!(
+                    "Warning: Skipped '{}' — could not create a symlink to '{}': {}. Nothing was moved. On Windows, symlinks need Developer Mode or admin rights.",
+                    item.target, item.original, e
+                ));
+                skipped_items.push(item.target.clone());
+                if let Some(ref pf) = progress_fn {
+                    pf(resolved_count + skipped_items.len() + unlinked_items.len());
+                }
+                continue;
+            }
+            Some(staged)
+        } else {
+            None
+        };
+
+        // Move the duplicate to the Trash
         if let Err(e) = trash_fn(target_path) {
+            if let Some(ref staged) = staged_link {
+                let _ = std::fs::remove_file(staged);
+            }
             // Permission denied or other fs error: log as warning and skip this file
             // instead of aborting the entire batch operation.
             let reason = format!("{} (os error {})", e.kind().to_string(), e.raw_os_error().unwrap_or(0));
@@ -532,58 +580,58 @@ where
             ));
             skipped_items.push(item.target.clone());
             if let Some(ref pf) = progress_fn {
-                pf(resolved_count + skipped_items.len());
+                pf(resolved_count + skipped_items.len() + unlinked_items.len());
             }
             continue;
         }
 
-        // 2. If Symlink Preservation is toggled, create a symbolic link pointing to the original
-        if mode == "symlink" {
-            let original_path = Path::new(&item.original);
-
-            #[cfg(unix)]
-            {
-                if let Err(e) = std::os::unix::fs::symlink(original_path, target_path) {
-                    write_to_log_file(&format!("Error: Failed to symlink '{}' to '{}': {:?}", item.target, item.original, e));
-                    return Err(format!(
-                        "Symlink Error: Failed to create symlink from '{}' to '{}': {}",
-                        item.target, item.original, e
-                    ));
+        // Symlink mode, step 3: move the staged link into the duplicate's place.
+        if let Some(ref staged) = staged_link {
+            if let Err(e) = std::fs::rename(staged, target_path) {
+                let _ = std::fs::remove_file(staged);
+                write_to_log_file(&format!(
+                    "Error: '{}' was moved to the Trash, but the symlink to '{}' could not be put in place: {}. Restore it from the Trash if needed.",
+                    item.target, item.original, e
+                ));
+                unlinked_items.push(item.target.clone());
+                if let Some(ref pf) = progress_fn {
+                    pf(resolved_count + skipped_items.len() + unlinked_items.len());
                 }
-            }
-
-            #[cfg(windows)]
-            {
-                if let Err(e) = std::os::windows::fs::symlink_file(original_path, target_path) {
-                    write_to_log_file(&format!("Error: Failed to symlink on Windows: {:?}", e));
-                    return Err(format!(
-                        "Symlink Error: Failed to create symlink: {}",
-                        e
-                    ));
-                }
+                continue;
             }
         }
 
         resolved_count += 1;
         if let Some(ref pf) = progress_fn {
-            pf(resolved_count + skipped_items.len());
+            pf(resolved_count + skipped_items.len() + unlinked_items.len());
         }
     }
 
-    if skipped_items.is_empty() {
+    if skipped_items.is_empty() && unlinked_items.is_empty() {
         write_to_log_file(&format!("Resolution complete. Successfully resolved {} of {} items.", resolved_count, items.len()));
-        Ok(format!("Successfully resolved {} duplicates.", resolved_count))
-    } else {
-        write_to_log_file(&format!(
-            "Resolution complete with warnings. Resolved {} of {} items. Skipped {} items (see warnings above).",
-            resolved_count, items.len(), skipped_items.len()
-        ));
-        // Return Ok with a summary message — the frontend will display it as a warning, not a hard error.
-        Ok(format!(
-            "Resolved {} of {} files. {} file(s) were skipped (changed or missing since the scan, or could not be moved to the Trash) — open Help > View App Log for details.",
-            resolved_count, items.len(), skipped_items.len()
-        ))
+        return Ok(format!("Successfully resolved {} duplicates.", resolved_count));
     }
+
+    write_to_log_file(&format!(
+        "Resolution complete with warnings. Resolved {} of {} items. Skipped {}. Trashed without link {} (see warnings above).",
+        resolved_count, items.len(), skipped_items.len(), unlinked_items.len()
+    ));
+    // Return Ok with a summary message — the frontend will display it as a warning, not a hard error.
+    let mut msg = format!("Resolved {} of {} files.", resolved_count, items.len());
+    if !skipped_items.is_empty() {
+        msg.push_str(&format!(
+            " {} file(s) were skipped and left untouched (changed or missing since the scan, or could not be linked or moved to the Trash).",
+            skipped_items.len()
+        ));
+    }
+    if !unlinked_items.is_empty() {
+        msg.push_str(&format!(
+            " {} file(s) were moved to the Trash but their symlink could not be created; restore them from the Trash if needed.",
+            unlinked_items.len()
+        ));
+    }
+    msg.push_str(" Open Help > View App Log for details.");
+    Ok(msg)
 }
 
 #[tauri::command]
@@ -595,7 +643,7 @@ async fn resolve_duplicates(
     let progress_fn = move |count| {
         let _ = app.emit("resolve-progress", count);
     };
-    resolve_duplicates_internal(items, mode, move_to_trash_silent, Some(progress_fn))
+    resolve_duplicates_internal(items, mode, move_to_trash_silent, create_symlink, Some(progress_fn))
 }
 
 #[tauri::command]
@@ -958,7 +1006,7 @@ mod tests {
             }
         ];
         
-        let res = resolve_duplicates_internal(res_items, "delete".to_string(), fake_trash(trash_dir.clone()), None::<fn(usize)>);
+        let res = resolve_duplicates_internal(res_items, "delete".to_string(), fake_trash(trash_dir.clone()), create_symlink, None::<fn(usize)>);
         assert!(res.is_ok());
         // file_2 must be in the fake Trash, file_1 must still exist
         assert!(!file_2.exists());
@@ -973,7 +1021,7 @@ mod tests {
                 ..Default::default()
             }
         ];
-        let bad_res = resolve_duplicates_internal(bad_items, "symlink".to_string(), fake_trash(trash_dir.clone()), None::<fn(usize)>);
+        let bad_res = resolve_duplicates_internal(bad_items, "symlink".to_string(), fake_trash(trash_dir.clone()), create_symlink, None::<fn(usize)>);
         assert!(bad_res.is_err()); // Circular link check failed
 
         let _ = fs::remove_dir_all(&sandbox);
@@ -1001,7 +1049,7 @@ mod tests {
             ResolutionItem { target: locked.to_string_lossy().into(), original: orig.to_string_lossy().into(), ..Default::default() },
             ResolutionItem { target: ok.to_string_lossy().into(), original: orig.to_string_lossy().into(), ..Default::default() },
         ];
-        let msg = resolve_duplicates_internal(items, "delete".to_string(), failing_trash, None::<fn(usize)>).unwrap();
+        let msg = resolve_duplicates_internal(items, "delete".to_string(), failing_trash, create_symlink, None::<fn(usize)>).unwrap();
         assert!(msg.contains("1 file(s) were skipped"), "{msg}");
         assert!(locked.exists());
         assert!(!ok.exists());
@@ -1044,7 +1092,7 @@ mod tests {
         assert_eq!(validate_resolution_item(&item), Err("kept copy no longer exists".to_string()));
 
         let trash_dir = sandbox.join("trash");
-        let msg = resolve_duplicates_internal(vec![item], "delete".to_string(), fake_trash(trash_dir.clone()), None::<fn(usize)>).unwrap();
+        let msg = resolve_duplicates_internal(vec![item], "delete".to_string(), fake_trash(trash_dir.clone()), create_symlink, None::<fn(usize)>).unwrap();
         assert!(msg.contains("1 file(s) were skipped"), "{msg}");
         assert!(b.exists(), "the last remaining copy must not be trashed");
         assert!(!trash_dir.exists());
@@ -1102,6 +1150,82 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(validate_resolution_item(&item), Err("duplicate and kept copy are the same file".to_string()));
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    /// Lists hidden staging links left in `dir` (there should never be any).
+    fn leftover_staging_links(dir: &Path) -> Vec<String> {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".afz-link-"))
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_mode_replaces_duplicate_with_link() {
+        let sandbox = temp_sandbox("link_ok");
+        let (orig, dup) = (sandbox.join("orig.txt"), sandbox.join("dup.txt"));
+        write_file(&orig, b"same");
+        write_file(&dup, b"same");
+        let trash_dir = sandbox.join("trash");
+
+        let msg = resolve_duplicates_internal(
+            vec![scanned_item(&dup, &orig)], "symlink".to_string(),
+            fake_trash(trash_dir.clone()), create_symlink, None::<fn(usize)>,
+        ).unwrap();
+        assert!(msg.starts_with("Successfully"), "{msg}");
+        assert!(fs::symlink_metadata(&dup).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_link(&dup).unwrap(), orig);
+        assert!(trash_dir.join("dup.txt").exists());
+        assert!(orig.is_file());
+        assert!(leftover_staging_links(&sandbox).is_empty());
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn symlink_failure_moves_nothing_and_continues_batch() {
+        let sandbox = temp_sandbox("link_fail");
+        let orig = sandbox.join("orig.txt");
+        let (bad, good) = (sandbox.join("bad.txt"), sandbox.join("good.txt"));
+        for p in [&orig, &bad, &good] {
+            write_file(p, b"same");
+        }
+        let trash_dir = sandbox.join("trash");
+        // Fails for one item, works for the other (stands in for e.g. Windows without Developer Mode).
+        let flaky_link = |o: &Path, link: &Path| {
+            if link.to_string_lossy().contains("bad.txt") {
+                Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no symlink privilege"))
+            } else {
+                create_symlink(o, link)
+            }
+        };
+        let items = vec![scanned_item(&bad, &orig), scanned_item(&good, &orig)];
+        let msg = resolve_duplicates_internal(items, "symlink".to_string(), fake_trash(trash_dir.clone()), flaky_link, None::<fn(usize)>).unwrap();
+
+        assert!(msg.contains("1 file(s) were skipped"), "{msg}");
+        assert!(bad.is_file(), "a file whose link failed must stay where it was");
+        assert!(!trash_dir.join("bad.txt").exists());
+        assert!(fs::symlink_metadata(&good).unwrap().file_type().is_symlink());
+        assert!(leftover_staging_links(&sandbox).is_empty());
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn symlink_mode_trash_failure_removes_staged_link() {
+        let sandbox = temp_sandbox("link_trashfail");
+        let (orig, dup) = (sandbox.join("orig.txt"), sandbox.join("dup.txt"));
+        write_file(&orig, b"same");
+        write_file(&dup, b"same");
+        let refuse = |_: &Path| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "locked"));
+        let msg = resolve_duplicates_internal(
+            vec![scanned_item(&dup, &orig)], "symlink".to_string(), refuse, create_symlink, None::<fn(usize)>,
+        ).unwrap();
+        assert!(msg.contains("1 file(s) were skipped"), "{msg}");
+        assert!(dup.is_file());
+        assert!(leftover_staging_links(&sandbox).is_empty());
         let _ = fs::remove_dir_all(&sandbox);
     }
 }
