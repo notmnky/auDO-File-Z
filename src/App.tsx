@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import versionInfo from "../version.json";
+import { computeSelections, type SelectionMode } from "./selection";
 import { 
   Settings, 
   ShieldAlert, 
@@ -38,6 +39,7 @@ interface ColumnWidths {
   filename: number;
   path: number;
   date: number;
+  modified: number;
   size: number;
 }
 
@@ -46,6 +48,7 @@ const DEFAULT_COL_WIDTHS: ColumnWidths = {
   filename: 260,
   path: 360,
   date: 160,
+  modified: 160,
   size: 110,
 };
 
@@ -54,6 +57,7 @@ const MIN_COL_WIDTHS: ColumnWidths = {
   filename: 120,
   path: 140,
   date: 110,
+  modified: 110,
   size: 80,
 };
 
@@ -148,6 +152,7 @@ function App() {
           filename: Math.max(MIN_COL_WIDTHS.filename, parsed.filename || DEFAULT_COL_WIDTHS.filename),
           path: Math.max(MIN_COL_WIDTHS.path, parsed.path || DEFAULT_COL_WIDTHS.path),
           date: Math.max(MIN_COL_WIDTHS.date, parsed.date || DEFAULT_COL_WIDTHS.date),
+          modified: Math.max(MIN_COL_WIDTHS.modified, parsed.modified || DEFAULT_COL_WIDTHS.modified),
           size: Math.max(MIN_COL_WIDTHS.size, parsed.size || DEFAULT_COL_WIDTHS.size),
         };
       }
@@ -569,52 +574,25 @@ function App() {
     }
   };
 
-  // Apply auto-selection logic based on modified dates
-  const applySelectionMode = (mode: "manual" | "oldest" | "newest", currentResults: DuplicateGroup[]) => {
-    if (mode === "manual") return;
-    
-    const newSelections: Record<string, boolean> = {};
-    currentResults.forEach(group => {
-      if (group.files.length === 0) return;
-
-      let keepIndex = 0;
-      if (mode === "oldest") {
-        // Keep the newest file (max modified timestamp), check older ones for deletion
-        let maxModified = -1;
-        group.files.forEach((file, index) => {
-          if (file.modified > maxModified) {
-            maxModified = file.modified;
-            keepIndex = index;
-          }
-        });
-      } else if (mode === "newest") {
-        // Keep the oldest file (min modified timestamp), check newer ones for deletion
-        let minModified = Infinity;
-        group.files.forEach((file, index) => {
-          if (file.modified < minModified) {
-            minModified = file.modified;
-            keepIndex = index;
-          }
-        });
-      }
-
-      group.files.forEach((file, index) => {
-        if (file.read_only) {
-          newSelections[file.path] = false;
-        } else {
-          newSelections[file.path] = index !== keepIndex;
-        }
-      });
-    });
-    
-    setSelectedFiles(newSelections);
+  // Apply auto-selection (logic lives in ./selection.ts so it can be unit tested).
+  // Returns the number of groups where nothing could be selected because of read-only copies.
+  const applySelectionMode = (mode: SelectionMode, currentResults: DuplicateGroup[]): number => {
+    if (mode === "manual") return 0;
+    const { selections, readOnlyBlockedGroups } = computeSelections(mode, currentResults);
+    setSelectedFiles(selections);
+    return readOnlyBlockedGroups;
   };
+
+  const readOnlyNote = (blocked: number) =>
+    blocked > 0
+      ? ` ${blocked} group${blocked === 1 ? "" : "s"} skipped: read-only copies are never auto-selected.`
+      : "";
 
   // Handle selection dropdown changes
   const handleSelectionModeChange = (mode: "manual" | "oldest" | "newest") => {
     setSelectionMode(mode);
-    applySelectionMode(mode, scanResults);
-    setStatusMessage(`Selection mode changed to: ${mode === "oldest" ? "Auto-Select Oldest" : mode === "newest" ? "Auto-Select Newest" : "Manual"}`);
+    const blocked = applySelectionMode(mode, scanResults);
+    setStatusMessage(`Selection mode changed to: ${mode === "oldest" ? "Auto-Select Oldest" : mode === "newest" ? "Auto-Select Newest" : "Manual"}.${readOnlyNote(blocked)}`);
   };
 
   // Deselect All checkboxes
@@ -671,10 +649,10 @@ function App() {
       if (selectionMode === "manual") {
         setSelectionMode("oldest");
       }
-      applySelectionMode(modeToApply, results);
+      const blocked = applySelectionMode(modeToApply, results);
       
       const totalFiles = results.reduce((acc, g) => acc + g.files.length, 0);
-      setStatusMessage(`Scan complete. Found ${results.length} groups (${totalFiles} files).`);
+      setStatusMessage(`Scan complete. Found ${results.length} groups (${totalFiles} files).${readOnlyNote(blocked)}`);
     } catch (err) {
       console.error("Error during scan:", err);
       setStatusMessage("Scan failed due to an internal error.");
@@ -1309,7 +1287,7 @@ function App() {
                   </label>
                   <span className="text-[10px] text-gray-500 italic">
                     {scanResults.length > 0 && (
-                      selectionMode === "oldest" ? "(Preserves newest copy)" : selectionMode === "newest" ? "(Preserves oldest copy)" : "(Custom override active)"
+                      selectionMode === "oldest" ? "(Keeps the most recently modified copy)" : selectionMode === "newest" ? "(Keeps the earliest modified copy)" : "(Custom override active)"
                     )}
                   </span>
                 </div>
@@ -1330,8 +1308,8 @@ function App() {
                   className={`text-left font-bold text-xs select-none sticky top-0 z-20 ${dataGridHeaderClass}`}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px minmax(${colWidths.size}px, 1fr)`,
-                    minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px`,
+                    gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px ${colWidths.modified}px minmax(${colWidths.size}px, 1fr)`,
+                    minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.modified + colWidths.size}px`,
                   }}
                 >
                   <div className={`p-2 border-r relative flex items-center justify-center ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
@@ -1370,6 +1348,15 @@ function App() {
                       title="Drag to resize column (Double-click to reset)"
                     />
                   </div>
+                  <div className={`p-2 border-r relative flex items-center justify-between ${isDoors ? "border-xp-greyBorder" : "border-[#2c2c2c]"}`}>
+                    <span className="truncate" title="Auto-select Oldest/Newest compares this date">Date Modified</span>
+                    <div 
+                      onMouseDown={(e) => startResizing("modified", e)}
+                      onDoubleClick={() => resetColWidth("modified")}
+                      className="col-resizer"
+                      title="Drag to resize column (Double-click to reset)"
+                    />
+                  </div>
                   <div className="p-2 flex items-center justify-end pr-4 relative">
                     <span>Size</span>
                   </div>
@@ -1393,7 +1380,7 @@ function App() {
                           
                           {/* Group Header */}
                           <div 
-                            style={{ minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px` }}
+                            style={{ minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.modified + colWidths.size}px` }}
                             className={`px-2 py-1 flex items-center justify-between border-b text-[10px] font-semibold sticky left-0 ${isDoors ? "bg-xp-greyLight border-xp-greyBorder text-xp-blueDark" : "bg-[#181818] border-[#252525] text-[#FF6600]"}`}
                           >
                             <div className="flex items-center gap-1.5">
@@ -1435,8 +1422,8 @@ function App() {
                                 }}
                                 style={{
                                   display: "grid",
-                                  gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px minmax(${colWidths.size}px, 1fr)`,
-                                  minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.size}px`,
+                                  gridTemplateColumns: `${colWidths.select}px ${colWidths.filename}px ${colWidths.path}px ${colWidths.date}px ${colWidths.modified}px minmax(${colWidths.size}px, 1fr)`,
+                                  minWidth: `${colWidths.select + colWidths.filename + colWidths.path + colWidths.date + colWidths.modified + colWidths.size}px`,
                                 }}
                                 className={`text-xs py-1.5 items-center cursor-pointer group ${dataGridRowClass(isKeep)}`}
                               >
@@ -1493,6 +1480,11 @@ function App() {
                                 {/* Date Created Column */}
                                 <div className="px-2 truncate font-mono text-[10px] overflow-hidden" title={formatDate(file.created)}>
                                   {formatDate(file.created)}
+                                </div>
+
+                                {/* Date Modified Column (used by Auto-Select Oldest/Newest) */}
+                                <div className="px-2 truncate font-mono text-[10px] overflow-hidden" title={formatDate(file.modified)}>
+                                  {formatDate(file.modified)}
                                 </div>
 
                                 {/* Size */}
