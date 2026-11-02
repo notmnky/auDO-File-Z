@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import versionInfo from "../version.json";
 import { computeSelections, type SelectionMode } from "./selection";
-import { isUpdateAvailable, matchReleaseAsset } from "./updates";
+import { formatVersionDate, isUpdateAvailable, matchReleaseAsset } from "./updates";
 import { 
   Settings, 
   ShieldAlert, 
@@ -85,11 +85,16 @@ const formatDate = (epochMillis: number): string => {
 };
 
 const APP_VERSION = versionInfo.version;
+// e.g. "2 November 2026"; empty if the build did not provide a date.
+const APP_VERSION_DATE = formatVersionDate(
+  typeof __APP_VERSION_DATE__ !== "undefined" ? __APP_VERSION_DATE__ : ""
+);
 
 function App() {
   // App States
   const [showUpdatePrompt, setShowUpdatePrompt] = useState<boolean>(false);
   const [updateTag, setUpdateTag] = useState<string>("");
+  const [updateDate, setUpdateDate] = useState<string>("");
   const [updateBody, setUpdateBody] = useState<string>("");
   const [updateAssetUrl, setUpdateAssetUrl] = useState<string>("");
   const [updateAssetName, setUpdateAssetName] = useState<string>("");
@@ -362,6 +367,7 @@ function App() {
         const asset = matchReleaseAsset(data.assets || [], metadata.os, metadata.arch);
         if (asset) {
           setUpdateTag(latestTag);
+          setUpdateDate(formatVersionDate(data.published_at));
           setUpdateBody(releaseBody);
           setUpdateAssetUrl(asset.browser_download_url);
           setUpdateAssetName(asset.name);
@@ -1626,6 +1632,7 @@ function App() {
                 <div>
                   <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO FileZ</h3>
                   <p className="text-gray-500">Version {APP_VERSION}</p>
+                  {APP_VERSION_DATE && <p className="text-gray-500">Updated {APP_VERSION_DATE}</p>}
                   <p className="text-gray-500 mt-1">© 2026 Nishank / notMNKY</p>
                 </div>
               </div>
@@ -1719,7 +1726,7 @@ function App() {
                 <Info className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
                   <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>A new version of auDO FileZ is available!</h3>
-                  <p className="text-gray-500 mt-0.5">Version {updateTag} is now available (Current: {APP_VERSION}).</p>
+                  <p className="text-gray-500 mt-0.5">Version {updateTag}{updateDate ? `, released ${updateDate},` : ""} is now available (Current: {APP_VERSION}{APP_VERSION_DATE ? `, ${APP_VERSION_DATE}` : ""}).</p>
                 </div>
               </div>
 
