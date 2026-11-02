@@ -444,13 +444,18 @@ fn move_to_trash_silent(src: &Path) -> std::io::Result<()> {
     }
 }
 
-fn resolve_duplicates_internal<F>(
+/// `trash_fn` moves one file to the Trash. The app passes `move_to_trash_silent`;
+/// tests pass a function that moves files into a temp folder, so `cargo test`
+/// never touches the developer's real Trash.
+fn resolve_duplicates_internal<F, T>(
     items: Vec<ResolutionItem>,
     mode: String,
+    trash_fn: T,
     progress_fn: Option<F>,
 ) -> Result<String, String>
 where
     F: Fn(usize) + Send + Sync,
+    T: Fn(&Path) -> std::io::Result<()>,
 {
     if items.is_empty() {
         return Ok("No files to resolve.".to_string());
@@ -489,7 +494,7 @@ where
         write_to_log_file(&format!("Resolving file: '{}' pointing to original: '{}'", item.target, item.original));
 
         // 1. Move the target file to the macOS Trash silently
-        if let Err(e) = move_to_trash_silent(target_path) {
+        if let Err(e) = trash_fn(target_path) {
             // Permission denied or other fs error: log as warning and skip this file
             // instead of aborting the entire batch operation.
             let reason = format!("{} (os error {})", e.kind().to_string(), e.raw_os_error().unwrap_or(0));
@@ -562,7 +567,7 @@ async fn resolve_duplicates(
     let progress_fn = move |count| {
         let _ = app.emit("resolve-progress", count);
     };
-    resolve_duplicates_internal(items, mode, Some(progress_fn))
+    resolve_duplicates_internal(items, mode, move_to_trash_silent, Some(progress_fn))
 }
 
 #[tauri::command]
@@ -825,6 +830,29 @@ mod tests {
     use std::fs::{self, File};
     use std::io::Write;
 
+    /// Fresh, unique folder under the OS temp dir. Never inside the repo or $HOME.
+    fn temp_sandbox(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("afz-test-{}-{}-{}", name, std::process::id(), nanos));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Stand-in for the system Trash: moves the file into `trash_dir`.
+    fn fake_trash(trash_dir: PathBuf) -> impl Fn(&Path) -> std::io::Result<()> {
+        move |src: &Path| {
+            fs::create_dir_all(&trash_dir)?;
+            fs::rename(src, trash_dir.join(src.file_name().unwrap()))
+        }
+    }
+
+    fn write_file(path: &Path, content: &[u8]) {
+        File::create(path).unwrap().write_all(content).unwrap();
+    }
+
     #[test]
     fn test_parse_extensions() {
         assert_eq!(parse_extensions(".mp3, .WAV, flac"), vec!["mp3", "wav", "flac"]);
@@ -835,9 +863,10 @@ mod tests {
 
     #[test]
     fn test_hashing_and_crawler() {
-        // Create temporary test structure in the target folder (clean sandbox)
-        let test_dir = Path::new("target/test_run_m4");
-        let _ = fs::remove_dir_all(test_dir);
+        let sandbox = temp_sandbox("crawler");
+        let test_dir = sandbox.join("scan");
+        let trash_dir = sandbox.join("trash");
+        let test_dir = test_dir.as_path();
         fs::create_dir_all(test_dir).unwrap();
 
         let sub_a = test_dir.join("sub_a");
@@ -900,10 +929,11 @@ mod tests {
             }
         ];
         
-        let res = resolve_duplicates_internal(res_items, "delete".to_string(), None::<fn(usize)>);
+        let res = resolve_duplicates_internal(res_items, "delete".to_string(), fake_trash(trash_dir.clone()), None::<fn(usize)>);
         assert!(res.is_ok());
-        // file_2 must be gone, file_1 must still exist
+        // file_2 must be in the fake Trash, file_1 must still exist
         assert!(!file_2.exists());
+        assert!(trash_dir.join("file2.txt").exists());
         assert!(file_1.exists());
 
         // Test circular reference check
@@ -913,10 +943,40 @@ mod tests {
                 original: file_1.to_string_lossy().into_owned(),
             }
         ];
-        let bad_res = resolve_duplicates_internal(bad_items, "symlink".to_string(), None::<fn(usize)>);
+        let bad_res = resolve_duplicates_internal(bad_items, "symlink".to_string(), fake_trash(trash_dir.clone()), None::<fn(usize)>);
         assert!(bad_res.is_err()); // Circular link check failed
 
-        // Clean up sandbox
-        let _ = fs::remove_dir_all(test_dir);
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn trash_failure_skips_item_and_continues_batch() {
+        let sandbox = temp_sandbox("trashfail");
+        let orig = sandbox.join("orig.txt");
+        let locked = sandbox.join("locked.txt");
+        let ok = sandbox.join("ok.txt");
+        for p in [&orig, &locked, &ok] {
+            write_file(p, b"same");
+        }
+        let trash_dir = sandbox.join("trash");
+        let inner = fake_trash(trash_dir.clone());
+        let failing_trash = |p: &Path| {
+            if p.ends_with("locked.txt") {
+                Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "locked"))
+            } else {
+                inner(p)
+            }
+        };
+        let items = vec![
+            ResolutionItem { target: locked.to_string_lossy().into(), original: orig.to_string_lossy().into() },
+            ResolutionItem { target: ok.to_string_lossy().into(), original: orig.to_string_lossy().into() },
+        ];
+        let msg = resolve_duplicates_internal(items, "delete".to_string(), failing_trash, None::<fn(usize)>).unwrap();
+        assert!(msg.contains("1 file(s) were skipped"), "{msg}");
+        assert!(locked.exists());
+        assert!(!ok.exists());
+        assert!(trash_dir.join("ok.txt").exists());
+        assert!(orig.exists());
+        let _ = fs::remove_dir_all(&sandbox);
     }
 }
