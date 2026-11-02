@@ -42,7 +42,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "auDO File Z ${{ github.ref_name }}"
+          releaseName: "auDO FileZ ${{ github.ref_name }}"
           releaseBody: "Nostalgic Cryptographic File Deduplication for macOS (Apple Silicon) and Windows."
           releaseDraft: false
           prerelease: false

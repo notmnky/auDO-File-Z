@@ -1,7 +1,7 @@
 {
-  "name": "audo-file-z",
-  "productName": "auDO File Z",
-  "description": "auDO File Z - Nostalgic Cryptographic File Deduplication for macOS and Windows",
+  "name": "audofilez",
+  "productName": "auDO FileZ",
+  "description": "auDO FileZ - Nostalgic Cryptographic File Deduplication for macOS and Windows",
   "private": true,
   "version": "0.1.9004",
   "keywords": [

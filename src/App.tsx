@@ -935,8 +935,8 @@ function App() {
         className={`flex items-center justify-between h-[30px] font-bold text-sm select-none z-10 cursor-default ${titleBarClass}`}
       >
         <div className="flex items-center gap-1.5 px-2 pointer-events-none select-none">
-          <img src="/afz-logo-sq.png" className="w-[16px] h-[16px] object-contain" alt="auDO File Z Logo" />
-          <span className={`${isDoors ? "drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" : ""}`}>auDO File Z by notMNKY</span>
+          <img src="/afz-logo-sq.png" className="w-[16px] h-[16px] object-contain" alt="auDO FileZ Logo" />
+          <span className={`${isDoors ? "drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" : ""}`}>auDO FileZ by notMNKY</span>
         </div>
         <div className="flex items-center gap-1 pr-1" onClick={(e) => e.stopPropagation()}>
           {/* Minimize */}
@@ -1081,7 +1081,7 @@ function App() {
                 onClick={() => handleMenuAction("about")} 
                 className={`w-full text-left px-3 py-1 text-xs ${dropdownBtnClass}`}
               >
-                About auDO File Z
+                About auDO FileZ
               </button>
               <button 
                 onClick={() => handleMenuAction("view-log")} 
@@ -1125,7 +1125,7 @@ function App() {
             {/* Wizard Header Banner */}
             <div className={`p-3 border-b flex justify-between items-center ${isDoors ? "bg-white border-xp-greyShadow" : "bg-[#1c1c1c] border-[#2c2c2c]"}`}>
               <div>
-                <h2 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO File Z Setup Wizard</h2>
+                <h2 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO FileZ Setup Wizard</h2>
                 <p className="text-gray-500 mt-0.5">Configure macOS Full Disk Access permissions.</p>
               </div>
               <ShieldAlert className={`${isDoors ? "text-xp-blue" : "text-[#FF6600]"} w-10 h-10`} />
@@ -1145,7 +1145,7 @@ function App() {
                   <li>Open macOS <strong>System Settings</strong>.</li>
                   <li>Navigate to <strong>Privacy & Security</strong> &gt; <strong>Full Disk Access</strong>.</li>
                   <li>Click the <strong>Add (+)</strong> button at the bottom of the list.</li>
-                  <li>Select or drag <strong>auDO File Z.app</strong> (or your terminal/runner) and enable the toggle switch.</li>
+                  <li>Select or drag <strong>auDO FileZ.app</strong> (or your terminal/runner) and enable the toggle switch.</li>
                 </ol>
               </div>
 
@@ -1640,7 +1640,7 @@ function App() {
           <div className={`w-[360px] shadow-lg text-xs font-tahoma border-2 ${isDoors ? "xp-outset bg-xp-grey border-xp-blueDark" : "bg-[#181818] border-[#333333] text-white"}`}>
             {/* Title Bar */}
             <div className={`flex items-center justify-between h-[25px] px-1.5 font-bold ${isDoors ? "bg-gradient-to-r from-xp-blue to-xp-blueLight text-white" : "bg-[#1c1c1c] text-[#FF6600] border-b border-[#2c2c2c]"}`}>
-              <span className={isDoors ? "drop-shadow-[1px_1px_0px_rgba(0,0,0,0.5)]" : ""}>About auDO File Z</span>
+              <span className={isDoors ? "drop-shadow-[1px_1px_0px_rgba(0,0,0,0.5)]" : ""}>About auDO FileZ</span>
               <button 
                 onClick={() => setShowAbout(false)}
                 className={`w-[16px] h-[16px] flex items-center justify-center text-[10px] text-white font-extrabold pb-0.5 rounded-[2px] ${isDoors ? "xp-btn-close" : "bg-[#333] hover:bg-red-600 border-none"}`}
@@ -1653,7 +1653,7 @@ function App() {
               <div className="flex gap-3">
                 <Settings className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
-                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO File Z</h3>
+                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>auDO FileZ</h3>
                   <p className="text-gray-500">Version {APP_VERSION}</p>
                   <p className="text-gray-500 mt-1">© 2026 Nishank / notMNKY</p>
                 </div>
@@ -1747,7 +1747,7 @@ function App() {
               <div className="flex gap-3">
                 <Info className={`w-10 h-10 flex-shrink-0 ${isDoors ? "text-xp-blue" : "text-[#FF6600]"}`} />
                 <div>
-                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>A new version of auDO File Z is available!</h3>
+                  <h3 className={`font-bold text-sm ${isDoors ? "text-black" : "text-white"}`}>A new version of auDO FileZ is available!</h3>
                   <p className="text-gray-500 mt-0.5">Version {updateTag} is now available (Current: {APP_VERSION}).</p>
                 </div>
               </div>

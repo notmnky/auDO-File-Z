@@ -765,7 +765,7 @@ pub fn run() {
             let handle = app.handle();
             
             // App Menu (default on macOS)
-            let app_menu = Submenu::new(handle, "auDO File Z", true)?;
+            let app_menu = Submenu::new(handle, "auDO FileZ", true)?;
             let about_item = PredefinedMenuItem::about(handle, None, None)?;
             let quit_item = PredefinedMenuItem::quit(handle, None)?;
             app_menu.append(&about_item)?;
