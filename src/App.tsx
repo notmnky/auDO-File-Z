@@ -1544,9 +1544,6 @@ function App() {
           <AlertCircle size={10} className={isDoors ? "text-xp-blueDark" : "text-[#FF6600]"} />
           <span>Status: <strong>{statusMessage}</strong></span>
         </div>
-        <div className={`w-[120px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
-          Offline Mode: Yes
-        </div>
         <div className={`w-[450px] px-2 py-0.5 truncate border-r font-semibold ${isDoors ? "border-xp-greyBorder" : "border-[#222222]"}`}>
           {isScanning && !isResolving ? (
             `Scanning folder... ${scanProgress}% complete`
