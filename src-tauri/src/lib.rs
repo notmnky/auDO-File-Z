@@ -503,10 +503,23 @@ async fn start_scan(
     extensions: String,
 ) -> Result<Vec<DuplicateGroup>, String> {
     state.is_cancelled.store(false, std::sync::atomic::Ordering::Relaxed);
+    let emitter = app.clone();
     let progress_fn = move |pct| {
-        let _ = app.emit("scan-progress", pct);
+        let _ = emitter.emit("scan-progress", pct);
     };
-    run_scan_internal(&path, &extensions, &state.is_cancelled, Some(progress_fn))
+    let groups = run_scan_internal(&path, &extensions, &state.is_cancelled, Some(progress_fn))?;
+
+    // The asset protocol (used for audio preview) starts with an empty scope.
+    // Only files shown in the results become readable by the webview.
+    // Tauri cannot revoke these grants, so they last until the app restarts.
+    use tauri::Manager;
+    let scope = app.asset_protocol_scope();
+    for file in groups.iter().flat_map(|g| &g.files) {
+        if let Err(e) = scope.allow_file(&file.path) {
+            write_to_log_file(&format!("Could not allow audio preview for '{}': {}", file.path, e));
+        }
+    }
+    Ok(groups)
 }
 
 /// Moves one file to the system Trash / Recycle Bin through the `trash` crate.
