@@ -1051,8 +1051,25 @@ pub fn run() {
             
             view_menu.append(&skins_menu)?;
             
-            // Set Menu
+            // Edit Menu (macOS only). On macOS, Cmd+C / Cmd+V / Cmd+X / Cmd+A / Cmd+Z
+            // in text fields only work when the native menu has these standard items.
+            // Windows handles the shortcuts in the web view without a menu.
+            #[cfg(target_os = "macos")]
+            let menu = {
+                let edit_menu = Submenu::with_items(handle, "Edit", true, &[
+                    &PredefinedMenuItem::undo(handle, None)?,
+                    &PredefinedMenuItem::redo(handle, None)?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &PredefinedMenuItem::cut(handle, None)?,
+                    &PredefinedMenuItem::copy(handle, None)?,
+                    &PredefinedMenuItem::paste(handle, None)?,
+                    &PredefinedMenuItem::select_all(handle, None)?,
+                ])?;
+                Menu::with_items(handle, &[&app_menu, &edit_menu, &view_menu])?
+            };
+            #[cfg(not(target_os = "macos"))]
             let menu = Menu::with_items(handle, &[&app_menu, &view_menu])?;
+
             handle.set_menu(menu)?;
             
             Ok(())
